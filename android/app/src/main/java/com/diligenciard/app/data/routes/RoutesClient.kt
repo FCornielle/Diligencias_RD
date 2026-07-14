@@ -19,6 +19,12 @@ interface RoutesApi {
         @Header("X-Goog-FieldMask") fieldMask: String,
         @Body body: RouteMatrixRequest,
     ): List<RouteMatrixElement>
+
+    @POST("directions/v2:computeRoutes")
+    suspend fun computeRoutes(
+        @Header("X-Goog-FieldMask") fieldMask: String,
+        @Body body: ComputeRoutesRequest,
+    ): ComputeRoutesResponse
 }
 
 /**
@@ -70,6 +76,36 @@ class RoutesClient(context: Context) {
         )
     }
 
-    private fun LatLng.toMatrixWaypoint() =
-        MatrixWaypoint(WaypointDto(LocationDto(LatLngDto(latitude, longitude))))
+    /**
+     * Rutas con tráfico + alternativas + ruta corta legal (spec §10).
+     * SHORTER_DISTANCE es pre-GA: si la petición combinada falla, se reintenta sin ella
+     * y el fallback será la alternativa con menor distanceMeters (spec §23).
+     */
+    suspend fun computeRoutes(origin: LatLng, destination: LatLng): List<RouteDto> {
+        val fieldMask = listOf(
+            "routes.duration",
+            "routes.staticDuration",
+            "routes.distanceMeters",
+            "routes.polyline.encodedPolyline",
+            "routes.routeToken",
+            "routes.routeLabels",
+            "routes.travelAdvisory.speedReadingIntervals",
+        ).joinToString(",")
+
+        val base = ComputeRoutesRequest(
+            origin = origin.toWaypoint(),
+            destination = destination.toWaypoint(),
+        )
+        return try {
+            api.computeRoutes(fieldMask, base.copy(requestedReferenceRoutes = listOf("SHORTER_DISTANCE"))).routes
+        } catch (e: retrofit2.HttpException) {
+            // La función experimental puede cambiar o no estar disponible: degradar con gracia.
+            api.computeRoutes(fieldMask, base).routes
+        }
+    }
+
+    private fun LatLng.toWaypoint() =
+        WaypointDto(LocationDto(LatLngDto(latitude, longitude)))
+
+    private fun LatLng.toMatrixWaypoint() = MatrixWaypoint(toWaypoint())
 }

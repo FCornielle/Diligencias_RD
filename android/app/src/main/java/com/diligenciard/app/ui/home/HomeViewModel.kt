@@ -10,9 +10,15 @@ import com.diligenciard.app.data.places.PlacesRepository
 import com.diligenciard.app.data.routes.RoutesClient
 import com.diligenciard.app.engine.BranchComparator
 import com.diligenciard.app.engine.BranchOption
+import com.diligenciard.app.engine.RouteComparator
+import com.diligenciard.app.engine.RouteMode
+import com.diligenciard.app.engine.RouteOption
 import com.diligenciard.app.engine.SortMode
 import com.diligenciard.app.engine.WaitEstimator
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,13 +36,20 @@ data class HomeUiState(
     val selectedPlace: PlaceResult? = null,
     val error: String? = null,
     val comparisonNote: String? = null,
+    // Comparador de rutas (spec §14)
+    val routeDestination: PlaceResult? = null,
+    val routeOptions: List<RouteOption> = emptyList(),
+    val selectedRouteMode: RouteMode? = null,
+    val isRouting: Boolean = false,
 )
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private val placesRepo = PlacesRepository(app)
     private val catalog = ServicesCatalog.get(app)
-    private val comparator = BranchComparator(RoutesClient(app), WaitEstimator.get(app))
+    private val routesClient = RoutesClient(app)
+    private val comparator = BranchComparator(routesClient, WaitEstimator.get(app))
+    private val routeComparator = RouteComparator(routesClient)
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -143,6 +156,54 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun optionFor(place: PlaceResult): BranchOption? =
         _uiState.value.branchOptions.find { it.place.placeId == place.placeId }
+
+    /** Comparador de rutas hacia la sucursal elegida (spec §10, §14). */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun compareRoutes(place: PlaceResult, fallbackOrigin: LatLng) {
+        _uiState.update {
+            it.copy(isRouting = true, routeDestination = place, selectedPlace = null, error = null)
+        }
+        viewModelScope.launch {
+            val origin = try {
+                val location = LocationServices
+                    .getFusedLocationProviderClient(getApplication<Application>())
+                    .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+                    .await()
+                if (location != null) LatLng(location.latitude, location.longitude) else fallbackOrigin
+            } catch (e: Exception) {
+                fallbackOrigin
+            }
+            try {
+                val options = routeComparator.compare(origin, LatLng(place.latitude, place.longitude))
+                _uiState.update {
+                    it.copy(
+                        isRouting = false,
+                        routeOptions = options,
+                        selectedRouteMode = options.firstOrNull()?.mode,
+                        error = if (options.isEmpty()) "No pudimos calcular rutas hacia este lugar." else null,
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isRouting = false,
+                        routeDestination = null,
+                        error = "Error calculando rutas (${e.message ?: "red"}).",
+                    )
+                }
+            }
+        }
+    }
+
+    fun selectRouteMode(mode: RouteMode) {
+        _uiState.update { it.copy(selectedRouteMode = mode) }
+    }
+
+    fun closeRoutes() {
+        _uiState.update {
+            it.copy(routeDestination = null, routeOptions = emptyList(), selectedRouteMode = null)
+        }
+    }
 
     fun clearResults() {
         _uiState.update { HomeUiState() }

@@ -77,6 +77,8 @@ import androidx.compose.material3.Surface
 import com.diligenciard.app.R
 import com.diligenciard.app.data.model.PlaceResult
 import com.diligenciard.app.engine.BranchOption
+import com.diligenciard.app.engine.RouteMode
+import com.diligenciard.app.engine.RouteOption
 import com.diligenciard.app.engine.SortMode
 import com.diligenciard.app.ui.theme.AmbarAviso
 import com.diligenciard.app.ui.theme.GrisCerrado
@@ -97,6 +99,7 @@ import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 
 /** Centro por defecto: Santo Domingo. */
@@ -163,10 +166,19 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     }
     // Encuadra los resultados cuando llegan
     LaunchedEffect(state.results) {
-        if (state.results.size > 1) {
+        if (state.results.size > 1 && state.routeOptions.isEmpty()) {
             val builder = LatLngBounds.builder()
             state.results.forEach { builder.include(LatLng(it.latitude, it.longitude)) }
             cameraPositionState.move(CameraUpdateFactory.newLatLngBounds(builder.build(), 120))
+        }
+    }
+    // Encuadra las rutas cuando llegan
+    LaunchedEffect(state.routeOptions) {
+        val allPoints = state.routeOptions.flatMap { it.points }
+        if (allPoints.size > 1) {
+            val builder = LatLngBounds.builder()
+            allPoints.forEach { builder.include(it) }
+            cameraPositionState.move(CameraUpdateFactory.newLatLngBounds(builder.build(), 140))
         }
     }
 
@@ -185,8 +197,30 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             ),
             onMapClick = { viewModel.selectPlace(null) },
         ) {
+            // Rutas comparadas sobre el mapa (spec §14)
+            if (state.routeOptions.isNotEmpty()) {
+                state.routeOptions.forEach { route ->
+                    val selected = route.mode == state.selectedRouteMode
+                    Polyline(
+                        points = route.points,
+                        color = if (selected) MaterialTheme.colorScheme.primary else GrisCerrado,
+                        width = if (selected) 16f else 10f,
+                        zIndex = if (selected) 2f else 1f,
+                        clickable = true,
+                        onClick = { viewModel.selectRouteMode(route.mode) },
+                    )
+                }
+                state.routeDestination?.let { dest ->
+                    Marker(
+                        state = MarkerState(position = LatLng(dest.latitude, dest.longitude)),
+                        title = dest.name,
+                    )
+                }
+            }
+
             val bestTotal = state.branchOptions.minOfOrNull { it.breakdown.totalMinutesP50 }
-            state.results.forEach { place ->
+            val showPlaceMarkers = state.routeOptions.isEmpty()
+            if (showPlaceMarkers) state.results.forEach { place ->
                 val option = state.branchOptions.find { it.place.placeId == place.placeId }
                 if (option != null && bestTotal != null) {
                     // Marcador con el tiempo TOTAL de la diligencia dentro (spec §11.2)
@@ -273,7 +307,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                     )
                 }
             }
-            if (state.isSearching) {
+            if (state.isSearching || state.isComparing || state.isRouting) {
                 Spacer(Modifier.height(12.dp))
                 CircularProgressIndicator(
                     modifier = Modifier
@@ -314,8 +348,23 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             Icon(Icons.Filled.MyLocation, contentDescription = stringResource(R.string.my_location))
         }
 
+        // Comparador de rutas (spec §14)
+        if (state.routeOptions.isNotEmpty()) {
+            RouteSheet(
+                destinationName = state.routeDestination?.name ?: "",
+                options = state.routeOptions,
+                selectedMode = state.selectedRouteMode,
+                onSelect = viewModel::selectRouteMode,
+                onClose = viewModel::closeRoutes,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(WindowInsets.navigationBars.asPaddingValues())
+                    .padding(12.dp),
+            )
+        }
+
         // Comparador de sucursales (spec §13)
-        if (state.selectedPlace == null && state.branchOptions.isNotEmpty()) {
+        if (state.selectedPlace == null && state.routeOptions.isEmpty() && state.branchOptions.isNotEmpty()) {
             ComparatorSheet(
                 options = state.branchOptions,
                 sortMode = state.sortMode,
@@ -328,7 +377,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             )
         }
         state.comparisonNote?.let { note ->
-            if (state.selectedPlace == null) {
+            if (state.selectedPlace == null && state.routeOptions.isEmpty()) {
                 Card(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -352,6 +401,9 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 place = place,
                 option = viewModel.optionFor(place),
                 onDismiss = { viewModel.selectPlace(null) },
+                onViewRoutes = {
+                    viewModel.compareRoutes(place, cameraPositionState.position.target)
+                },
                 onCall = {
                     place.phone?.let { phone ->
                         context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")))
@@ -554,10 +606,89 @@ private fun ComparatorSheet(
 }
 
 @Composable
+private fun RouteSheet(
+    destinationName: String,
+    options: List<RouteOption>,
+    selectedMode: RouteMode?,
+    onSelect: (RouteMode) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Rutas hacia $destinationName",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Filled.Close, contentDescription = "Cerrar rutas")
+                }
+            }
+            options.forEach { route ->
+                val selected = route.mode == selectedMode
+                Card(
+                    onClick = { onSelect(route.mode) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selected)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else
+                            MaterialTheme.colorScheme.surface,
+                    ),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                route.mode.title,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "${formatMinutes(route.durationMinutes)} · %.1f km".format(route.distanceKm),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                        Text(
+                            route.description,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (route.delayMinutes > 0) {
+                            Text(
+                                "+${route.delayMinutes} min por tráfico actual",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (route.jamRatio > 0.15) RojoCongestion else AmbarAviso,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Button(
+                onClick = { /* F5: Navigation SDK con routeToken */ },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = false,
+            ) {
+                Text("Iniciar navegación (próximamente)")
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlaceCard(
     place: PlaceResult,
     option: BranchOption?,
     onDismiss: () -> Unit,
+    onViewRoutes: () -> Unit,
     onCall: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -637,7 +768,7 @@ private fun PlaceCard(
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { /* F3-F4: comparar y ver rutas */ }, modifier = Modifier.weight(1f)) {
+                Button(onClick = onViewRoutes, modifier = Modifier.weight(1f)) {
                     Text("Ver rutas")
                 }
                 if (place.phone != null) {
