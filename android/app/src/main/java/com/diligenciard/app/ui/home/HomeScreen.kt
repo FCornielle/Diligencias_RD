@@ -80,6 +80,7 @@ import com.diligenciard.app.engine.BranchOption
 import com.diligenciard.app.engine.RouteMode
 import com.diligenciard.app.engine.RouteOption
 import com.diligenciard.app.engine.SortMode
+import com.diligenciard.app.ui.navigation.NavigationActivity
 import com.diligenciard.app.ui.theme.AmbarAviso
 import com.diligenciard.app.ui.theme.GrisCerrado
 import com.diligenciard.app.ui.theme.RojoCongestion
@@ -355,6 +356,23 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 options = state.routeOptions,
                 selectedMode = state.selectedRouteMode,
                 onSelect = viewModel::selectRouteMode,
+                onStartNavigation = { route ->
+                    state.routeDestination?.let { dest ->
+                        val wait = viewModel.optionFor(dest)?.breakdown?.wait
+                        context.startActivity(
+                            NavigationActivity.intent(
+                                context = context,
+                                destLat = dest.latitude,
+                                destLng = dest.longitude,
+                                destName = dest.name,
+                                routeToken = route.routeToken,
+                                waitP50 = wait?.waitMinutesP50,
+                                waitP80 = wait?.waitMinutesP80,
+                                serviceP50 = wait?.serviceMinutesP50,
+                            )
+                        )
+                    }
+                },
                 onClose = viewModel::closeRoutes,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -611,6 +629,7 @@ private fun RouteSheet(
     options: List<RouteOption>,
     selectedMode: RouteMode?,
     onSelect: (RouteMode) -> Unit,
+    onStartNavigation: (RouteOption) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -672,12 +691,13 @@ private fun RouteSheet(
                 }
             }
             Spacer(Modifier.height(6.dp))
+            val selectedRoute = options.firstOrNull { it.mode == selectedMode }
             Button(
-                onClick = { /* F5: Navigation SDK con routeToken */ },
+                onClick = { selectedRoute?.let(onStartNavigation) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = false,
+                enabled = selectedRoute != null,
             ) {
-                Text("Iniciar navegación (próximamente)")
+                Text("Iniciar navegación")
             }
         }
     }
