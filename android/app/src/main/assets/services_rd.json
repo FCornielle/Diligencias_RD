@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "services": [
+    {
+      "id": "renew_driver_license",
+      "label": "Renovar licencia de conducir",
+      "keywords": ["renovar licencia", "licencia de conducir", "licencia", "intrant"],
+      "textQuery": "INTRANT oficina licencias",
+      "includedTypes": [],
+      "category": "gobierno",
+      "serviceMinutesP50": 25
+    },
+    {
+      "id": "birth_certificate",
+      "label": "Sacar acta de nacimiento",
+      "keywords": ["acta de nacimiento", "acta", "registro civil", "jce", "junta central"],
+      "textQuery": "Junta Central Electoral oficialía registro civil",
+      "includedTypes": [],
+      "category": "gobierno",
+      "serviceMinutesP50": 20
+    },
+    {
+      "id": "pay_taxes",
+      "label": "Pagar impuestos",
+      "keywords": ["pagar impuestos", "impuestos", "dgii", "marbete", "itbis"],
+      "textQuery": "DGII administración local",
+      "includedTypes": [],
+      "category": "gobierno",
+      "serviceMinutesP50": 18
+    },
+    {
+      "id": "passport",
+      "label": "Pasaporte",
+      "keywords": ["pasaporte", "renovar pasaporte"],
+      "textQuery": "Dirección General de Pasaportes",
+      "includedTypes": [],
+      "category": "gobierno",
+      "serviceMinutesP50": 30
+    },
+    {
+      "id": "cedula",
+      "label": "Cédula",
+      "keywords": ["cedula", "cédula", "renovar cedula"],
+      "textQuery": "Junta Central Electoral centro de cedulación",
+      "includedTypes": [],
+      "category": "gobierno",
+      "serviceMinutesP50": 25
+    },
+    {
+      "id": "bank_visit",
+      "label": "Ir al banco",
+      "keywords": ["banco", "ir al banco", "deposito", "depósito", "retiro", "banreservas", "popular", "bhd"],
+      "textQuery": "",
+      "includedTypes": ["bank"],
+      "category": "banco",
+      "serviceMinutesP50": 12
+    },
+    {
+      "id": "pharmacy",
+      "label": "Comprar medicamentos",
+      "keywords": ["farmacia", "medicamentos", "comprar medicamentos", "medicina"],
+      "textQuery": "",
+      "includedTypes": ["pharmacy"],
+      "category": "farmacia",
+      "serviceMinutesP50": 8
+    },
+    {
+      "id": "supermarket",
+      "label": "Ir al supermercado",
+      "keywords": ["supermercado", "compra", "colmado grande"],
+      "textQuery": "",
+      "includedTypes": ["supermarket"],
+      "category": "supermercado",
+      "serviceMinutesP50": 30
+    },
+    {
+      "id": "eat",
+      "label": "Comer",
+      "keywords": ["comer", "restaurante", "almuerzo", "cena"],
+      "textQuery": "",
+      "includedTypes": ["restaurant"],
+      "category": "restaurante",
+      "serviceMinutesP50": 45
+    },
+    {
+      "id": "clinic",
+      "label": "Clínica",
+      "keywords": ["clinica", "clínica", "medico", "médico", "hospital", "emergencia"],
+      "textQuery": "",
+      "includedTypes": ["hospital"],
+      "category": "clinica",
+      "serviceMinutesP50": 40
+    },
+    {
+      "id": "telecom",
+      "label": "Telecomunicaciones",
+      "keywords": ["claro", "altice", "viva", "telefono", "teléfono", "internet", "plan"],
+      "textQuery": "oficina comercial telecomunicaciones",
+      "includedTypes": [],
+      "category": "telecom",
+      "serviceMinutesP50": 20
+    },
+    {
+      "id": "courier",
+      "label": "Courier / paquetería",
+      "keywords": ["courier", "paquete", "encomienda", "caribe pack", "bm cargo", "eps"],
+      "textQuery": "courier oficina",
+      "includedTypes": [],
+      "category": "courier",
+      "serviceMinutesP50": 10
+    }
+  ],
+  "categories": {
+    "banco": { "chip": "Bancos", "includedTypes": ["bank"], "serviceId": "bank_visit" },
+    "gobierno": { "chip": "Gobierno", "textQuery": "oficina gubernamental", "serviceId": "pay_taxes" },
+    "supermercado": { "chip": "Supermercados", "includedTypes": ["supermarket"], "serviceId": "supermarket" },
+    "farmacia": { "chip": "Farmacias", "includedTypes": ["pharmacy"], "serviceId": "pharmacy" },
+    "restaurante": { "chip": "Restaurantes", "includedTypes": ["restaurant"], "serviceId": "eat" },
+    "clinica": { "chip": "Clínicas", "includedTypes": ["hospital"], "serviceId": "clinic" },
+    "telecom": { "chip": "Telecom", "textQuery": "oficina comercial Claro Altice Viva", "serviceId": "telecom" },
+    "courier": { "chip": "Couriers", "textQuery": "courier oficina", "serviceId": "courier" }
+  }
+}
