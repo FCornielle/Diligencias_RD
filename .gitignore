@@ -1,0 +1,19 @@
+# Claves y secretos — nunca al repo
+local.properties
+secrets.properties
+*.keystore
+*.jks
+google-services.json
+
+# Build
+android/**/build/
+android/.gradle/
+android/.kotlin/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
