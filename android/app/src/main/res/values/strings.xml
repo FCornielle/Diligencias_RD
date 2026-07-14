@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DiligenciaRD</string>
+    <string name="search_hint">¿Qué diligencia necesitas hacer?</string>
+    <string name="my_location">Mi ubicación</string>
+    <string name="voice_search">Búsqueda por voz</string>
+    <string name="location_permission_rationale">DiligenciaRD necesita tu ubicación para encontrar la sucursal donde terminarás más rápido.</string>
+    <string name="grant_permission">Permitir ubicación</string>
+</resources>

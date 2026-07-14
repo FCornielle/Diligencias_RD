@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Pin de mapa con check: llegar y terminar la diligencia -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,26c-9.9,0 -18,8.1 -18,18c0,13.5 18,34 18,34s18,-20.5 18,-34C72,34.1 63.9,26 54,26zM54,51c-3.9,0 -7,-3.1 -7,-7s3.1,-7 7,-7s7,3.1 7,7S57.9,51 54,51z" />
+    <path
+        android:fillColor="#35C466"
+        android:pathData="M50.8,46.6l-3.4,-3.4l-2.1,2.1l5.5,5.5l9.9,-9.9l-2.1,-2.1z" />
+</vector>
