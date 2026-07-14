@@ -19,7 +19,9 @@ Objetivo: habilitar Maps/Places/Routes/Navigation para DiligenciaRD **sin posibi
    - Routes API
    - Navigation SDK
 5. En **APIs & Services → Credentials → Create credentials → API key**:
-   - Application restrictions: **Android apps** → añade el paquete `com.diligenciard.app` + la huella **SHA-1 del keystore de debug** (te la genero yo con `gradlew signingReport` cuando el proyecto exista).
+   - Application restrictions: **Android apps** → añade DOS entradas, ambas con el paquete `com.diligenciard.app`:
+     - Debug: `18:D4:7C:C3:C0:4C:79:56:4E:16:82:4F:2E:35:94:6A:1C:8A:5A:81`
+     - Release: `71:EB:09:6B:A6:60:55:D1:02:42:7D:CB:BF:ED:8A:62:CD:1C:64:3C`
    - API restrictions: limita la clave a las 4 APIs de arriba.
 6. En **APIs & Services → Quotas**, fija topes diarios:
    - Routes API (ComputeRoutes y ComputeRouteMatrix): ~300 solicitudes/día
