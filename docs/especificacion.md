@@ -1,5 +1,11 @@
 # Especificación funcional y técnica: DiligenciaRD
 
+## Nota de alcance vigente
+
+La especificación describe la visión completa del producto. Para la demo actual, por decisión del usuario, no se requiere cuenta GCP ni claves de Google Cloud. Las secciones que mencionan Google Maps Platform, Places API, Routes API o Navigation SDK quedan como una posible integración futura, no como requisito de desarrollo actual.
+
+La demo vigente debe funcionar con datos locales, heurísticas locales, rutas simuladas y navegación simulada, manteniendo el principio central de comparar por tiempo total de diligencia.
+
 ## 1. Visión del producto
 
 **DiligenciaRD** será una aplicación Android de navegación y planificación de diligencias para República Dominicana, con una experiencia visual similar a Waze.

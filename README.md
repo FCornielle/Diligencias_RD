@@ -10,15 +10,15 @@ T_total = T_trayecto + T_estacionamiento + T_espera + T_servicio
 
 ## Estructura
 
-- `android/` — App Kotlin + Jetpack Compose (Maps SDK, Places API New, Routes API, Navigation SDK)
+- `android/` — App Kotlin + Jetpack Compose. La demo corre sin cuenta GCP usando datos locales y rutas simuladas; Google Maps Platform queda como proveedor opcional futuro.
 - `docs/` — Especificación funcional, plan de desarrollo y datos semilla
 
 ## Estado
 
-Fase demo: APK instalable con búsqueda, comparador de sucursales por tiempo total, comparador de rutas (rápida / menos congestionada / corta legal) y navegación giro a giro. Todo corre en el dispositivo; sin backend en esta etapa.
+Fase demo sin GCP: APK instalable con búsqueda local, comparador de sucursales por tiempo total, comparador de rutas (rápida / menos congestionada / corta legal) y navegación simulada. Todo corre en el dispositivo; sin backend, cuenta GCP ni claves API.
 
 ## Documentación
 
 - [Especificación funcional y técnica](docs/especificacion.md)
 - [Plan de desarrollo de la demo](docs/plan-demo.md)
-- [Configuración de Google Cloud a costo cero](docs/gcp-setup.md)
+- [Nota sobre Google Cloud y proveedores externos](docs/gcp-setup.md)

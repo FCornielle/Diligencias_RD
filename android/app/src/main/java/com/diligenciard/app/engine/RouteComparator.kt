@@ -1,7 +1,7 @@
 package com.diligenciard.app.engine
 
 import com.diligenciard.app.data.routes.RouteDto
-import com.diligenciard.app.data.routes.RoutesClient
+import com.diligenciard.app.data.routes.RoutesProvider
 import com.diligenciard.app.data.routes.parseDurationSeconds
 import com.diligenciard.app.util.Polylines
 import com.google.android.gms.maps.model.LatLng
@@ -35,7 +35,7 @@ data class RouteOption(
  * calcula retraso/proporciones de congestión y puntúa con los pesos por modo (spec §10.3).
  * Solo usa rutas devueltas por Google: ninguna maniobra propia (spec §3.4).
  */
-class RouteComparator(private val routesClient: RoutesClient) {
+class RouteComparator(private val routesClient: RoutesProvider) {
 
     private data class Weights(val wt: Double, val wd: Double, val wj: Double, val ws: Double)
 

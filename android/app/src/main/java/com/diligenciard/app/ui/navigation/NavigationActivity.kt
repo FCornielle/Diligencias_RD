@@ -4,9 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,11 +22,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import com.diligenciard.app.R
 import com.diligenciard.app.ui.theme.DiligenciaRDTheme
+import com.diligenciard.app.util.RuntimeMode
 import com.google.android.libraries.navigation.CustomRoutesOptions
 import com.google.android.libraries.navigation.ListenableResultFuture
 import com.google.android.libraries.navigation.NavigationApi
@@ -45,6 +51,20 @@ class NavigationActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!RuntimeMode.googleCloudEnabled) {
+            setContent {
+                DiligenciaRDTheme {
+                    DemoGuidanceScreen(
+                        destName = intent.getStringExtra(EXTRA_DEST_NAME) ?: "Destino",
+                        waitP50 = intent.getIntExtra(EXTRA_WAIT_P50, -1),
+                        waitP80 = intent.getIntExtra(EXTRA_WAIT_P80, -1),
+                        serviceP50 = intent.getIntExtra(EXTRA_SERVICE_P50, -1),
+                        onFinish = { finish() },
+                    )
+                }
+            }
+            return
+        }
         setContentView(R.layout.activity_navigation)
 
         val overlay = findViewById<ComposeView>(R.id.diligencia_overlay)
@@ -169,6 +189,63 @@ class NavigationActivity : AppCompatActivity() {
             putExtra(EXTRA_WAIT_P50, waitP50 ?: -1)
             putExtra(EXTRA_WAIT_P80, waitP80 ?: -1)
             putExtra(EXTRA_SERVICE_P50, serviceP50 ?: -1)
+        }
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun DemoGuidanceScreen(
+    destName: String,
+    waitP50: Int,
+    waitP80: Int,
+    serviceP50: Int,
+    onFinish: () -> Unit,
+) {
+    val timeFormat = DateTimeFormatter.ofPattern("h:mm a")
+    val arrival = LocalTime.now().plusMinutes(14)
+    val finish = if (waitP50 >= 0 && serviceP50 >= 0) {
+        arrival.plusMinutes((waitP50 + serviceP50).toLong())
+    } else {
+        null
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("En camino a $destName", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Llegada estimada: ${arrival.format(timeFormat)}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                if (waitP50 >= 0 && serviceP50 >= 0) {
+                    Text(
+                        "Espera al llegar: $waitP50-$waitP80 min",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    finish?.let {
+                        Text(
+                            "Finalizacion estimada: ${it.format(timeFormat)}",
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                }
+                Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) {
+                    Text("Finalizar navegacion")
+                }
+            }
         }
     }
 }

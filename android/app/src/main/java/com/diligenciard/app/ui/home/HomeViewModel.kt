@@ -6,8 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.diligenciard.app.data.ServicesCatalog
 import com.diligenciard.app.data.model.PlaceResult
 import com.diligenciard.app.data.model.ServiceDef
+import com.diligenciard.app.data.places.DemoPlacesRepository
 import com.diligenciard.app.data.places.PlacesRepository
+import com.diligenciard.app.data.routes.DemoRoutesClient
 import com.diligenciard.app.data.routes.RoutesClient
+import com.diligenciard.app.data.routes.RoutesProvider
 import com.diligenciard.app.engine.BranchComparator
 import com.diligenciard.app.engine.BranchOption
 import com.diligenciard.app.engine.RouteComparator
@@ -15,6 +18,7 @@ import com.diligenciard.app.engine.RouteMode
 import com.diligenciard.app.engine.RouteOption
 import com.diligenciard.app.engine.SortMode
 import com.diligenciard.app.engine.WaitEstimator
+import com.diligenciard.app.util.RuntimeMode
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.model.LatLng
@@ -45,9 +49,11 @@ data class HomeUiState(
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val placesRepo = PlacesRepository(app)
     private val catalog = ServicesCatalog.get(app)
-    private val routesClient = RoutesClient(app)
+    private val googlePlacesRepo by lazy { PlacesRepository(app) }
+    private val demoPlacesRepo = DemoPlacesRepository(app)
+    private val routesClient: RoutesProvider =
+        if (RuntimeMode.googleCloudEnabled) RoutesClient(app) else DemoRoutesClient()
     private val comparator = BranchComparator(routesClient, WaitEstimator.get(app))
     private val routeComparator = RouteComparator(routesClient)
 
@@ -59,12 +65,16 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         val service = catalog.matchIntent(query)
         val label = service?.label ?: query
         launchSearch(label, service, origin) {
-            when {
-                service != null && service.includedTypes.isNotEmpty() ->
-                    placesRepo.searchNearbyByTypes(service.includedTypes, origin)
-                service != null && service.textQuery.isNotBlank() ->
-                    placesRepo.searchByText(service.textQuery, origin)
-                else -> placesRepo.searchByText(query, origin)
+            if (RuntimeMode.googleCloudEnabled) {
+                when {
+                    service != null && service.includedTypes.isNotEmpty() ->
+                        googlePlacesRepo.searchNearbyByTypes(service.includedTypes, origin)
+                    service != null && service.textQuery.isNotBlank() ->
+                        googlePlacesRepo.searchByText(service.textQuery, origin)
+                    else -> googlePlacesRepo.searchByText(query, origin)
+                }
+            } else {
+                demoPlacesRepo.search(query, service, origin)
             }
         }
     }
@@ -74,10 +84,14 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         val category = catalog.categories[categoryKey] ?: return
         val service = catalog.serviceById(category.serviceId)
         launchSearch(category.chip, service, origin) {
-            if (category.includedTypes.isNotEmpty())
-                placesRepo.searchNearbyByTypes(category.includedTypes, origin)
-            else
-                placesRepo.searchByText(category.textQuery, origin)
+            if (RuntimeMode.googleCloudEnabled) {
+                if (category.includedTypes.isNotEmpty())
+                    googlePlacesRepo.searchNearbyByTypes(category.includedTypes, origin)
+                else
+                    googlePlacesRepo.searchByText(category.textQuery, origin)
+            } else {
+                demoPlacesRepo.searchCategory(categoryKey, service, origin)
+            }
         }
     }
 

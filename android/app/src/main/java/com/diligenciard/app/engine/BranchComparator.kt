@@ -3,7 +3,7 @@ package com.diligenciard.app.engine
 import com.diligenciard.app.data.model.PlaceResult
 import com.diligenciard.app.data.model.ServiceDef
 import com.diligenciard.app.data.model.TotalTimeBreakdown
-import com.diligenciard.app.data.routes.RoutesClient
+import com.diligenciard.app.data.routes.RoutesProvider
 import com.diligenciard.app.data.routes.parseDurationSeconds
 import com.google.android.gms.maps.model.LatLng
 import java.time.LocalDateTime
@@ -27,7 +27,7 @@ enum class SortMode { TOTAL_TIME, DRIVE_TIME, WAIT_TIME, DISTANCE }
  * En la demo corre on-device; su interfaz es portable al backend (spec §21).
  */
 class BranchComparator(
-    private val routesClient: RoutesClient,
+    private val routesClient: RoutesProvider,
     private val waitEstimator: WaitEstimator,
     private val lambda: Double = 0.5,
 ) {

@@ -27,11 +27,20 @@ interface RoutesApi {
     ): ComputeRoutesResponse
 }
 
+interface RoutesProvider {
+    suspend fun computeRouteMatrix(
+        origin: LatLng,
+        destinations: List<LatLng>,
+    ): List<RouteMatrixElement>
+
+    suspend fun computeRoutes(origin: LatLng, destination: LatLng): List<RouteDto>
+}
+
 /**
  * Cliente de Routes API por REST usando la clave Android restringida
  * (encabezados X-Android-Package / X-Android-Cert). Sin backend en la demo.
  */
-class RoutesClient(context: Context) {
+class RoutesClient(context: Context) : RoutesProvider {
 
     private val appContext = context.applicationContext
 
@@ -62,7 +71,7 @@ class RoutesClient(context: Context) {
      * Compara trayectos origen → hasta 10 destinos con tráfico (spec §4.2, §9 paso 4).
      * Devuelve elementos indexados por destino.
      */
-    suspend fun computeRouteMatrix(
+    override suspend fun computeRouteMatrix(
         origin: LatLng,
         destinations: List<LatLng>,
     ): List<RouteMatrixElement> {
@@ -81,7 +90,7 @@ class RoutesClient(context: Context) {
      * SHORTER_DISTANCE es pre-GA: si la petición combinada falla, se reintenta sin ella
      * y el fallback será la alternativa con menor distanceMeters (spec §23).
      */
-    suspend fun computeRoutes(origin: LatLng, destination: LatLng): List<RouteDto> {
+    override suspend fun computeRoutes(origin: LatLng, destination: LatLng): List<RouteDto> {
         val fieldMask = listOf(
             "routes.duration",
             "routes.staticDuration",

@@ -39,6 +39,30 @@ object Polylines {
         return points
     }
 
+    fun encode(points: List<LatLng>): String {
+        val result = StringBuilder()
+        var lastLat = 0
+        var lastLng = 0
+        points.forEach { point ->
+            val lat = (point.latitude * 1e5).toInt()
+            val lng = (point.longitude * 1e5).toInt()
+            encodeValue(lat - lastLat, result)
+            encodeValue(lng - lastLng, result)
+            lastLat = lat
+            lastLng = lng
+        }
+        return result.toString()
+    }
+
+    private fun encodeValue(value: Int, out: StringBuilder) {
+        var v = if (value < 0) (value shl 1).inv() else value shl 1
+        while (v >= 0x20) {
+            out.append(((0x20 or (v and 0x1f)) + 63).toChar())
+            v = v shr 5
+        }
+        out.append((v + 63).toChar())
+    }
+
     /** Distancia haversine en metros. */
     fun distanceMeters(a: LatLng, b: LatLng): Double {
         val r = 6_371_000.0

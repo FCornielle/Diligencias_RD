@@ -2,8 +2,12 @@ package com.diligenciard.app.ui.home
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.graphics.Paint
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,7 +68,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -85,6 +95,7 @@ import com.diligenciard.app.ui.theme.AmbarAviso
 import com.diligenciard.app.ui.theme.GrisCerrado
 import com.diligenciard.app.ui.theme.RojoCongestion
 import com.diligenciard.app.ui.theme.VerdeMejor
+import com.diligenciard.app.util.RuntimeMode
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -102,6 +113,8 @@ import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
+import kotlin.math.hypot
+import kotlin.math.max
 
 /** Centro por defecto: Santo Domingo. */
 private val SantoDomingo = LatLng(18.4861, -69.9312)
@@ -125,6 +138,7 @@ val quickCategories = listOf(
 fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
+    val googleCloudEnabled = RuntimeMode.googleCloudEnabled
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(SantoDomingo, 13f)
@@ -167,7 +181,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     }
     // Encuadra los resultados cuando llegan
     LaunchedEffect(state.results) {
-        if (state.results.size > 1 && state.routeOptions.isEmpty()) {
+        if (googleCloudEnabled && state.results.size > 1 && state.routeOptions.isEmpty()) {
             val builder = LatLngBounds.builder()
             state.results.forEach { builder.include(LatLng(it.latitude, it.longitude)) }
             cameraPositionState.move(CameraUpdateFactory.newLatLngBounds(builder.build(), 120))
@@ -176,7 +190,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     // Encuadra las rutas cuando llegan
     LaunchedEffect(state.routeOptions) {
         val allPoints = state.routeOptions.flatMap { it.points }
-        if (allPoints.size > 1) {
+        if (googleCloudEnabled && allPoints.size > 1) {
             val builder = LatLngBounds.builder()
             allPoints.forEach { builder.include(it) }
             cameraPositionState.move(CameraUpdateFactory.newLatLngBounds(builder.build(), 140))
@@ -184,20 +198,21 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        GoogleMap(
-            modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(
-                isTrafficEnabled = true,
-                isMyLocationEnabled = hasLocation,
-            ),
-            uiSettings = MapUiSettings(
-                zoomControlsEnabled = false,
-                myLocationButtonEnabled = false,
-                mapToolbarEnabled = false,
-            ),
-            onMapClick = { viewModel.selectPlace(null) },
-        ) {
+        if (googleCloudEnabled) {
+            GoogleMap(
+                modifier = Modifier.fillMaxSize(),
+                cameraPositionState = cameraPositionState,
+                properties = MapProperties(
+                    isTrafficEnabled = true,
+                    isMyLocationEnabled = hasLocation,
+                ),
+                uiSettings = MapUiSettings(
+                    zoomControlsEnabled = false,
+                    myLocationButtonEnabled = false,
+                    mapToolbarEnabled = false,
+                ),
+                onMapClick = { viewModel.selectPlace(null) },
+            ) {
             // Rutas comparadas sobre el mapa (spec §14)
             if (state.routeOptions.isNotEmpty()) {
                 state.routeOptions.forEach { route ->
@@ -249,7 +264,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                                 formatMinutes(total),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = androidx.compose.ui.graphics.Color.White,
+                                color = Color.White,
                             )
                         }
                     }
@@ -264,6 +279,18 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                     )
                 }
             }
+            }
+        } else {
+            DemoMap(
+                results = state.results,
+                branchOptions = state.branchOptions,
+                routeOptions = state.routeOptions,
+                selectedRouteMode = state.selectedRouteMode,
+                routeDestination = state.routeDestination,
+                onSelectPlace = viewModel::selectPlace,
+                onMapClick = { viewModel.selectPlace(null) },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         // Barra de búsqueda + accesos rápidos
@@ -536,6 +563,158 @@ private fun ActiveSearchBar(
 fun formatMinutes(minutes: Int): String =
     if (minutes < 60) "$minutes min"
     else "${minutes / 60} h ${"%02d".format(minutes % 60)} min"
+
+@Composable
+private fun DemoMap(
+    results: List<PlaceResult>,
+    branchOptions: List<BranchOption>,
+    routeOptions: List<RouteOption>,
+    selectedRouteMode: RouteMode?,
+    routeDestination: PlaceResult?,
+    onSelectPlace: (PlaceResult) -> Unit,
+    onMapClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val bestTotal = branchOptions.minOfOrNull { it.breakdown.totalMinutesP50 }
+    val routePoints = routeOptions.flatMap { it.points }
+    val points = buildList {
+        add(SantoDomingo)
+        results.forEach { add(LatLng(it.latitude, it.longitude)) }
+        routeDestination?.let { add(LatLng(it.latitude, it.longitude)) }
+        addAll(routePoints)
+    }
+    val bounds = remember(points) { DemoMapBounds.from(points) }
+    val background = MaterialTheme.colorScheme.surfaceVariant
+    val minorRoad = MaterialTheme.colorScheme.surface
+    val majorRoad = MaterialTheme.colorScheme.outlineVariant
+    val primary = MaterialTheme.colorScheme.primary
+    val labelPaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textAlign = Paint.Align.CENTER
+            textSize = 28f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+    }
+
+    Canvas(
+        modifier = modifier
+            .background(background)
+            .pointerInput(results, branchOptions, routeOptions) {
+                detectTapGestures { tap ->
+                    val hit = results.minByOrNull { place ->
+                        val point = bounds.project(LatLng(place.latitude, place.longitude), size.width, size.height)
+                        hypot((point.x - tap.x).toDouble(), (point.y - tap.y).toDouble())
+                    }
+                    val hitDistance = hit?.let { place ->
+                        val point = bounds.project(LatLng(place.latitude, place.longitude), size.width, size.height)
+                        hypot((point.x - tap.x).toDouble(), (point.y - tap.y).toDouble())
+                    }
+                    if (hit != null && hitDistance != null && hitDistance <= 58.0) {
+                        onSelectPlace(hit)
+                    } else {
+                        onMapClick()
+                    }
+                }
+            },
+    ) {
+        val w = size.width
+        val h = size.height
+        repeat(7) { index ->
+            val x = w * (index + 1) / 8f
+            drawLine(minorRoad, Offset(x, 0f), Offset(x - w * 0.18f, h), strokeWidth = 5f)
+        }
+        repeat(6) { index ->
+            val y = h * (index + 1) / 7f
+            drawLine(minorRoad, Offset(0f, y), Offset(w, y - h * 0.12f), strokeWidth = 4f)
+        }
+        drawLine(majorRoad, Offset(0f, h * 0.46f), Offset(w, h * 0.35f), strokeWidth = 11f, cap = StrokeCap.Round)
+        drawLine(majorRoad, Offset(w * 0.18f, 0f), Offset(w * 0.70f, h), strokeWidth = 10f, cap = StrokeCap.Round)
+
+        routeOptions.forEach { route ->
+            val path = Path()
+            route.points.forEachIndexed { index, point ->
+                val offset = bounds.project(point, w.toInt(), h.toInt())
+                if (index == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
+            }
+            val selected = route.mode == selectedRouteMode
+            drawPath(
+                path = path,
+                color = if (selected) primary else GrisCerrado,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = if (selected) 16f else 10f,
+                    cap = StrokeCap.Round,
+                ),
+                alpha = if (selected) 0.95f else 0.65f,
+            )
+        }
+
+        val showPlaceMarkers = routeOptions.isEmpty()
+        if (showPlaceMarkers) {
+            results.forEach { place ->
+                val option = branchOptions.find { it.place.placeId == place.placeId }
+                val total = option?.breakdown?.totalMinutesP50
+                val color = when {
+                    total == null || bestTotal == null -> GrisCerrado
+                    total <= bestTotal + 10 -> VerdeMejor
+                    total <= bestTotal + 25 -> AmbarAviso
+                    else -> RojoCongestion
+                }
+                val offset = bounds.project(LatLng(place.latitude, place.longitude), w.toInt(), h.toInt())
+                drawCircle(Color.White, radius = 26f, center = offset)
+                drawCircle(color, radius = 22f, center = offset)
+                if (total != null) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        total.toString(),
+                        offset.x,
+                        offset.y + 9f,
+                        labelPaint,
+                    )
+                }
+            }
+        }
+
+        routeDestination?.let { destination ->
+            val offset = bounds.project(LatLng(destination.latitude, destination.longitude), w.toInt(), h.toInt())
+            drawCircle(Color.White, radius = 24f, center = offset)
+            drawCircle(RojoCongestion, radius = 18f, center = offset)
+        }
+    }
+}
+
+private data class DemoMapBounds(
+    val minLat: Double,
+    val maxLat: Double,
+    val minLng: Double,
+    val maxLng: Double,
+) {
+    fun project(point: LatLng, width: Int, height: Int): Offset {
+        val latSpan = max(0.001, maxLat - minLat)
+        val lngSpan = max(0.001, maxLng - minLng)
+        val x = ((point.longitude - minLng) / lngSpan * width).toFloat().coerceIn(24f, width - 24f)
+        val y = ((maxLat - point.latitude) / latSpan * height).toFloat().coerceIn(80f, height - 80f)
+        return Offset(x, y)
+    }
+
+    companion object {
+        fun from(points: List<LatLng>): DemoMapBounds {
+            val latitudes = points.map { it.latitude }
+            val longitudes = points.map { it.longitude }
+            val minLat = latitudes.minOrNull() ?: SantoDomingo.latitude
+            val maxLat = latitudes.maxOrNull() ?: SantoDomingo.latitude
+            val minLng = longitudes.minOrNull() ?: SantoDomingo.longitude
+            val maxLng = longitudes.maxOrNull() ?: SantoDomingo.longitude
+            val latPadding = max(0.02, (maxLat - minLat) * 0.24)
+            val lngPadding = max(0.02, (maxLng - minLng) * 0.24)
+            return DemoMapBounds(
+                minLat = minLat - latPadding,
+                maxLat = maxLat + latPadding,
+                minLng = minLng - lngPadding,
+                maxLng = maxLng + lngPadding,
+            )
+        }
+    }
+}
 
 @Composable
 private fun ComparatorSheet(
