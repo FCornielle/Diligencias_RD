@@ -68,10 +68,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -115,6 +118,7 @@ import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 
 /** Centro por defecto: Santo Domingo. */
 private val SantoDomingo = LatLng(18.4861, -69.9312)
@@ -577,23 +581,42 @@ private fun DemoMap(
 ) {
     val bestTotal = branchOptions.minOfOrNull { it.breakdown.totalMinutesP50 }
     val routePoints = routeOptions.flatMap { it.points }
-    val points = buildList {
-        add(SantoDomingo)
-        results.forEach { add(LatLng(it.latitude, it.longitude)) }
-        routeDestination?.let { add(LatLng(it.latitude, it.longitude)) }
-        addAll(routePoints)
+    val points = when {
+        routePoints.isNotEmpty() -> routePoints
+        results.isNotEmpty() -> results.map { LatLng(it.latitude, it.longitude) }
+        else -> listOf(SantoDomingo)
     }
     val bounds = remember(points) { DemoMapBounds.from(points) }
-    val background = MaterialTheme.colorScheme.surfaceVariant
-    val minorRoad = MaterialTheme.colorScheme.surface
-    val majorRoad = MaterialTheme.colorScheme.outlineVariant
-    val primary = MaterialTheme.colorScheme.primary
-    val labelPaint = remember {
+    val background = Color(0xFFE8EDF2)
+    val blockColor = Color(0xFFDCE4EA)
+    val minorRoad = Color(0xFFFFFFFF)
+    val majorRoad = Color(0xFFC3D1DD)
+    val routeColors = mapOf(
+        RouteMode.FASTEST to Color(0xFF2563EB),
+        RouteMode.LEAST_CONGESTED to Color(0xFF0F9F6E),
+        RouteMode.SHORTEST_LEGAL to Color(0xFFF59E0B),
+    )
+    val timePaint = remember {
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = android.graphics.Color.WHITE
             textAlign = Paint.Align.CENTER
-            textSize = 28f
+            textSize = 25f
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+    }
+    val namePaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(20, 31, 43)
+            textAlign = Paint.Align.LEFT
+            textSize = 24f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+    }
+    val smallPaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(65, 78, 92)
+            textAlign = Paint.Align.LEFT
+            textSize = 20f
         }
     }
 
@@ -620,18 +643,30 @@ private fun DemoMap(
     ) {
         val w = size.width
         val h = size.height
+        drawRect(background)
+        repeat(5) { index ->
+            val left = w * (index % 2) * 0.52f - w * 0.04f
+            val top = h * index / 5.8f
+            drawRoundRect(
+                color = blockColor,
+                topLeft = Offset(left, top),
+                size = Size(w * 0.55f, h * 0.16f),
+                cornerRadius = CornerRadius(18f, 18f),
+                alpha = 0.65f,
+            )
+        }
         repeat(7) { index ->
             val x = w * (index + 1) / 8f
-            drawLine(minorRoad, Offset(x, 0f), Offset(x - w * 0.18f, h), strokeWidth = 5f)
+            drawLine(minorRoad, Offset(x, 0f), Offset(x - w * 0.16f, h), strokeWidth = 8f)
         }
         repeat(6) { index ->
             val y = h * (index + 1) / 7f
-            drawLine(minorRoad, Offset(0f, y), Offset(w, y - h * 0.12f), strokeWidth = 4f)
+            drawLine(minorRoad, Offset(0f, y), Offset(w, y - h * 0.10f), strokeWidth = 7f)
         }
-        drawLine(majorRoad, Offset(0f, h * 0.46f), Offset(w, h * 0.35f), strokeWidth = 11f, cap = StrokeCap.Round)
-        drawLine(majorRoad, Offset(w * 0.18f, 0f), Offset(w * 0.70f, h), strokeWidth = 10f, cap = StrokeCap.Round)
+        drawLine(majorRoad, Offset(0f, h * 0.46f), Offset(w, h * 0.35f), strokeWidth = 18f, cap = StrokeCap.Round)
+        drawLine(majorRoad, Offset(w * 0.18f, 0f), Offset(w * 0.70f, h), strokeWidth = 16f, cap = StrokeCap.Round)
 
-        routeOptions.forEach { route ->
+        routeOptions.sortedBy { if (it.mode == selectedRouteMode) 1 else 0 }.forEach { route ->
             val path = Path()
             route.points.forEachIndexed { index, point ->
                 val offset = bounds.project(point, w.toInt(), h.toInt())
@@ -640,18 +675,27 @@ private fun DemoMap(
             val selected = route.mode == selectedRouteMode
             drawPath(
                 path = path,
-                color = if (selected) primary else GrisCerrado,
-                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                    width = if (selected) 16f else 10f,
+                color = routeColors.getValue(route.mode),
+                style = Stroke(
+                    width = if (selected) 22f else 13f,
                     cap = StrokeCap.Round,
                 ),
-                alpha = if (selected) 0.95f else 0.65f,
+                alpha = if (selected) 1f else 0.55f,
             )
+        }
+
+        if (routeOptions.isNotEmpty()) {
+            routeOptions.firstOrNull()?.points?.firstOrNull()?.let { origin ->
+                val offset = bounds.project(origin, w.toInt(), h.toInt())
+                drawCircle(Color.White, radius = 24f, center = offset)
+                drawCircle(Color(0xFF1F2937), radius = 16f, center = offset)
+                drawContext.canvas.nativeCanvas.drawText("Salida", offset.x + 24f, offset.y + 8f, smallPaint)
+            }
         }
 
         val showPlaceMarkers = routeOptions.isEmpty()
         if (showPlaceMarkers) {
-            results.forEach { place ->
+            results.forEachIndexed { index, place ->
                 val option = branchOptions.find { it.place.placeId == place.placeId }
                 val total = option?.breakdown?.totalMinutesP50
                 val color = when {
@@ -661,26 +705,47 @@ private fun DemoMap(
                     else -> RojoCongestion
                 }
                 val offset = bounds.project(LatLng(place.latitude, place.longitude), w.toInt(), h.toInt())
-                drawCircle(Color.White, radius = 26f, center = offset)
-                drawCircle(color, radius = 22f, center = offset)
+                drawCircle(Color.White, radius = 34f, center = offset)
+                drawCircle(color, radius = 28f, center = offset)
                 if (total != null) {
                     drawContext.canvas.nativeCanvas.drawText(
                         total.toString(),
                         offset.x,
-                        offset.y + 9f,
-                        labelPaint,
+                        offset.y + 8f,
+                        timePaint,
                     )
+                }
+                if (index < 5) {
+                    val label = place.name.shortDemoLabel()
+                    val labelX = (offset.x + 36f).coerceAtMost(w - 170f)
+                    val labelY = (offset.y - 30f).coerceIn(112f, h - 120f)
+                    drawRoundRect(
+                        color = Color.White,
+                        topLeft = Offset(labelX - 8f, labelY - 27f),
+                        size = Size(min(250f, w - labelX - 18f), 50f),
+                        cornerRadius = CornerRadius(12f, 12f),
+                        alpha = 0.92f,
+                    )
+                    drawContext.canvas.nativeCanvas.drawText(label, labelX, labelY + 7f, namePaint)
                 }
             }
         }
 
         routeDestination?.let { destination ->
             val offset = bounds.project(LatLng(destination.latitude, destination.longitude), w.toInt(), h.toInt())
-            drawCircle(Color.White, radius = 24f, center = offset)
-            drawCircle(RojoCongestion, radius = 18f, center = offset)
+            drawCircle(Color.White, radius = 35f, center = offset)
+            drawCircle(RojoCongestion, radius = 27f, center = offset)
+            drawContext.canvas.nativeCanvas.drawText("Destino", offset.x + 34f, offset.y + 8f, namePaint)
         }
     }
 }
+
+private fun String.shortDemoLabel(): String =
+    substringBefore(" - ")
+        .split(" ")
+        .filter { it.isNotBlank() }
+        .take(3)
+        .joinToString(" ")
 
 private data class DemoMapBounds(
     val minLat: Double,
@@ -691,8 +756,10 @@ private data class DemoMapBounds(
     fun project(point: LatLng, width: Int, height: Int): Offset {
         val latSpan = max(0.001, maxLat - minLat)
         val lngSpan = max(0.001, maxLng - minLng)
-        val x = ((point.longitude - minLng) / lngSpan * width).toFloat().coerceIn(24f, width - 24f)
-        val y = ((maxLat - point.latitude) / latSpan * height).toFloat().coerceIn(80f, height - 80f)
+        val x = ((point.longitude - minLng) / lngSpan * width).toFloat().coerceIn(52f, width - 52f)
+        val topSafe = 210f
+        val bottomSafe = max(topSafe + 40f, height - 420f)
+        val y = ((maxLat - point.latitude) / latSpan * height).toFloat().coerceIn(topSafe, bottomSafe)
         return Offset(x, y)
     }
 
@@ -704,8 +771,8 @@ private data class DemoMapBounds(
             val maxLat = latitudes.maxOrNull() ?: SantoDomingo.latitude
             val minLng = longitudes.minOrNull() ?: SantoDomingo.longitude
             val maxLng = longitudes.maxOrNull() ?: SantoDomingo.longitude
-            val latPadding = max(0.02, (maxLat - minLat) * 0.24)
-            val lngPadding = max(0.02, (maxLng - minLng) * 0.24)
+            val latPadding = max(0.006, (maxLat - minLat) * 0.30)
+            val lngPadding = max(0.006, (maxLng - minLng) * 0.30)
             return DemoMapBounds(
                 minLat = minLat - latPadding,
                 maxLat = maxLat + latPadding,
