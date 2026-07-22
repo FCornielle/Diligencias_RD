@@ -1,6 +1,7 @@
 package com.diligenciard.app.ui.home
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.diligenciard.app.data.ServicesCatalog
@@ -16,6 +17,7 @@ import com.diligenciard.app.engine.BranchOption
 import com.diligenciard.app.engine.RouteComparator
 import com.diligenciard.app.engine.RouteMode
 import com.diligenciard.app.engine.RouteOption
+import com.diligenciard.app.engine.RoutePreferences
 import com.diligenciard.app.engine.SortMode
 import com.diligenciard.app.engine.WaitEstimator
 import com.diligenciard.app.util.RuntimeMode
@@ -44,6 +46,7 @@ data class HomeUiState(
     val routeDestination: PlaceResult? = null,
     val routeOptions: List<RouteOption> = emptyList(),
     val selectedRouteMode: RouteMode? = null,
+    val routePreferences: RoutePreferences = RoutePreferences(),
     val isRouting: Boolean = false,
 )
 
@@ -56,8 +59,9 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         if (RuntimeMode.googleCloudEnabled) RoutesClient(app) else DemoRoutesClient()
     private val comparator = BranchComparator(routesClient, WaitEstimator.get(app))
     private val routeComparator = RouteComparator(routesClient)
+    private val preferencesStore = app.getSharedPreferences("route_preferences", Context.MODE_PRIVATE)
 
-    private val _uiState = MutableStateFlow(HomeUiState())
+    private val _uiState = MutableStateFlow(HomeUiState(routePreferences = readRoutePreferences()))
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     /** Búsqueda libre: interpreta la intención (spec §9 paso 1) y busca candidatos. */
@@ -176,6 +180,14 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     fun optionFor(place: PlaceResult): BranchOption? =
         _uiState.value.branchOptions.find { it.place.placeId == place.placeId }
 
+    fun setPreferLocalStreets(enabled: Boolean) {
+        saveRoutePreferences(_uiState.value.routePreferences.copy(preferLocalStreets = enabled))
+    }
+
+    fun setAvoidFastRoads(enabled: Boolean) {
+        saveRoutePreferences(_uiState.value.routePreferences.copy(avoidFastRoads = enabled))
+    }
+
     /** Comparador de rutas hacia la sucursal elegida (spec §10, §14). */
     @android.annotation.SuppressLint("MissingPermission")
     fun compareRoutes(place: PlaceResult, fallbackOrigin: LatLng) {
@@ -193,12 +205,17 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 fallbackOrigin
             }
             try {
-                val options = routeComparator.compare(origin, LatLng(place.latitude, place.longitude))
+                val preferences = _uiState.value.routePreferences
+                val options = routeComparator.compare(
+                    origin = origin,
+                    destination = LatLng(place.latitude, place.longitude),
+                    preferences = preferences,
+                )
                 _uiState.update {
                     it.copy(
                         isRouting = false,
                         routeOptions = options,
-                        selectedRouteMode = options.firstOrNull()?.mode,
+                        selectedRouteMode = preferredInitialMode(options, preferences),
                         error = if (options.isEmpty()) "No pudimos calcular rutas hacia este lugar." else null,
                     )
                 }
@@ -225,6 +242,37 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearResults() {
-        _uiState.update { HomeUiState() }
+        _uiState.update { HomeUiState(routePreferences = it.routePreferences) }
+    }
+
+    private fun readRoutePreferences(): RoutePreferences =
+        RoutePreferences(
+            preferLocalStreets = preferencesStore.getBoolean(KEY_PREFER_LOCAL_STREETS, false),
+            avoidFastRoads = preferencesStore.getBoolean(KEY_AVOID_FAST_ROADS, false),
+        )
+
+    private fun saveRoutePreferences(preferences: RoutePreferences) {
+        preferencesStore.edit()
+            .putBoolean(KEY_PREFER_LOCAL_STREETS, preferences.preferLocalStreets)
+            .putBoolean(KEY_AVOID_FAST_ROADS, preferences.avoidFastRoads)
+            .apply()
+        _uiState.update { it.copy(routePreferences = preferences) }
+    }
+
+    private fun preferredInitialMode(
+        options: List<RouteOption>,
+        preferences: RoutePreferences,
+    ): RouteMode? {
+        val preferred = when {
+            preferences.preferLocalStreets -> RouteMode.SHORTEST_LEGAL
+            preferences.avoidFastRoads -> RouteMode.LEAST_CONGESTED
+            else -> RouteMode.FASTEST
+        }
+        return options.firstOrNull { it.mode == preferred }?.mode ?: options.firstOrNull()?.mode
+    }
+
+    private companion object {
+        const val KEY_PREFER_LOCAL_STREETS = "prefer_local_streets"
+        const val KEY_AVOID_FAST_ROADS = "avoid_fast_roads"
     }
 }

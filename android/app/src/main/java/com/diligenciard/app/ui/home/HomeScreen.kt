@@ -86,12 +86,14 @@ import com.diligenciard.app.data.model.PlaceResult
 import com.diligenciard.app.engine.BranchOption
 import com.diligenciard.app.engine.RouteMode
 import com.diligenciard.app.engine.RouteOption
+import com.diligenciard.app.engine.RoutePreferences
 import com.diligenciard.app.engine.SortMode
 import com.diligenciard.app.ui.navigation.NavigationActivity
 import com.diligenciard.app.ui.theme.AmbarAviso
 import com.diligenciard.app.ui.theme.GrisCerrado
 import com.diligenciard.app.ui.theme.RojoCongestion
 import com.diligenciard.app.ui.theme.VerdeMejor
+import com.diligenciard.app.util.Polylines
 import com.diligenciard.app.util.RuntimeMode
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -187,7 +189,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
         if (!hasLocation) locationPermissions.launchMultiplePermissionRequest()
     }
     LaunchedEffect(hasLocation) {
-        if (googleCloudEnabled && hasLocation && !centeredOnUser) {
+        if (hasLocation && !centeredOnUser) {
             centeredOnUser = true
             centerOnUser()
         }
@@ -410,6 +412,9 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                                 destLng = dest.longitude,
                                 destName = dest.name,
                                 routeToken = route.routeToken,
+                                routePolyline = Polylines.encode(route.points),
+                                durationMinutes = route.durationMinutes,
+                                distanceMeters = route.distanceMeters,
                                 waitP50 = wait?.waitMinutesP50,
                                 waitP80 = wait?.waitMinutesP80,
                                 serviceP50 = wait?.serviceMinutesP50,
@@ -462,6 +467,9 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             PlaceCard(
                 place = place,
                 option = viewModel.optionFor(place),
+                routePreferences = state.routePreferences,
+                onPreferLocalStreets = viewModel::setPreferLocalStreets,
+                onAvoidFastRoads = viewModel::setAvoidFastRoads,
                 onDismiss = { viewModel.selectPlace(null) },
                 onViewRoutes = {
                     val origin = if (googleCloudEnabled) cameraPositionState.position.target else localSearchOrigin
@@ -678,6 +686,15 @@ private fun OpenStreetMap(
                     position = GeoPoint(destination.latitude, destination.longitude)
                     title = destination.name
                     snippet = destination.address
+                    setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                    map.overlays.add(this)
+                }
+            }
+
+            userCenter?.let { user ->
+                OsmMarker(map).apply {
+                    position = user.toGeoPoint()
+                    title = "Tu ubicacion"
                     setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
                     map.overlays.add(this)
                 }
@@ -900,6 +917,9 @@ private fun RouteSheet(
 private fun PlaceCard(
     place: PlaceResult,
     option: BranchOption?,
+    routePreferences: RoutePreferences,
+    onPreferLocalStreets: (Boolean) -> Unit,
+    onAvoidFastRoads: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onViewRoutes: () -> Unit,
     onCall: () -> Unit,
@@ -976,6 +996,29 @@ private fun PlaceCard(
                     Text(
                         "$rating (${place.userRatingCount ?: 0} reseñas)",
                         style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Preferencias de ruta",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    FilterChip(
+                        selected = routePreferences.preferLocalStreets,
+                        onClick = { onPreferLocalStreets(!routePreferences.preferLocalStreets) },
+                        label = { Text("Calles locales") },
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = routePreferences.avoidFastRoads,
+                        onClick = { onAvoidFastRoads(!routePreferences.avoidFastRoads) },
+                        label = { Text("Evitar vias rapidas") },
                     )
                 }
             }

@@ -51,7 +51,11 @@ class RouteComparator(private val routesClient: RoutesProvider) {
             get() = dto.routeToken ?: dto.polyline?.encodedPolyline ?: "${dto.distanceMeters}-$durationMin-$staticMin"
     }
 
-    suspend fun compare(origin: LatLng, destination: LatLng): List<RouteOption> {
+    suspend fun compare(
+        origin: LatLng,
+        destination: LatLng,
+        preferences: RoutePreferences = RoutePreferences(),
+    ): List<RouteOption> {
         val routes = routesClient.computeRoutes(origin, destination)
         if (routes.isEmpty()) return emptyList()
 
@@ -85,11 +89,23 @@ class RouteComparator(private val routesClient: RoutesProvider) {
             score(it, weightsByMode.getValue(RouteMode.LEAST_CONGESTED))
         }
 
-        val byMode = linkedMapOf(
-            RouteMode.FASTEST to fastest,
-            RouteMode.LEAST_CONGESTED to leastCongested,
-            RouteMode.SHORTEST_LEGAL to shortest,
-        )
+        val byMode = when {
+            preferences.preferLocalStreets -> linkedMapOf(
+                RouteMode.SHORTEST_LEGAL to shortest,
+                RouteMode.FASTEST to fastest,
+                RouteMode.LEAST_CONGESTED to leastCongested,
+            )
+            preferences.avoidFastRoads -> linkedMapOf(
+                RouteMode.LEAST_CONGESTED to leastCongested,
+                RouteMode.SHORTEST_LEGAL to shortest,
+                RouteMode.FASTEST to fastest,
+            )
+            else -> linkedMapOf(
+                RouteMode.FASTEST to fastest,
+                RouteMode.LEAST_CONGESTED to leastCongested,
+                RouteMode.SHORTEST_LEGAL to shortest,
+            )
+        }
         val used = mutableSetOf<String>()
         return byMode.mapNotNull { (mode, candidate) ->
             if (!used.add(candidate.fingerprint)) return@mapNotNull null

@@ -1,8 +1,10 @@
 package com.diligenciard.app.ui.navigation
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
@@ -19,22 +21,40 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.diligenciard.app.R
 import com.diligenciard.app.ui.theme.DiligenciaRDTheme
+import com.diligenciard.app.util.Polylines
 import com.diligenciard.app.util.RuntimeMode
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.maps.model.LatLng
 import com.google.android.libraries.navigation.CustomRoutesOptions
 import com.google.android.libraries.navigation.ListenableResultFuture
 import com.google.android.libraries.navigation.NavigationApi
 import com.google.android.libraries.navigation.Navigator
-import com.google.android.libraries.navigation.SupportNavigationFragment
 import com.google.android.libraries.navigation.Waypoint
+import kotlinx.coroutines.tasks.await
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker as OsmMarker
+import org.osmdroid.views.overlay.Polyline as OsmPolyline
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -51,11 +71,21 @@ class NavigationActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (!RuntimeMode.googleCloudEnabled) {
+            val destLat = intent.getDoubleExtra(EXTRA_DEST_LAT, 0.0)
+            val destLng = intent.getDoubleExtra(EXTRA_DEST_LNG, 0.0)
+            val routePoints = intent.getStringExtra(EXTRA_ROUTE_POLYLINE)
+                ?.let(Polylines::decode)
+                .orEmpty()
             setContent {
                 DiligenciaRDTheme {
-                    DemoGuidanceScreen(
+                    LocalGuidanceScreen(
                         destName = intent.getStringExtra(EXTRA_DEST_NAME) ?: "Destino",
+                        destination = LatLng(destLat, destLng),
+                        routePoints = routePoints,
+                        durationMinutes = intent.getIntExtra(EXTRA_DURATION_MINUTES, -1),
+                        distanceMeters = intent.getIntExtra(EXTRA_DISTANCE_METERS, -1),
                         waitP50 = intent.getIntExtra(EXTRA_WAIT_P50, -1),
                         waitP80 = intent.getIntExtra(EXTRA_WAIT_P80, -1),
                         serviceP50 = intent.getIntExtra(EXTRA_SERVICE_P50, -1),
@@ -168,6 +198,9 @@ class NavigationActivity : AppCompatActivity() {
         private const val EXTRA_DEST_LNG = "dest_lng"
         private const val EXTRA_DEST_NAME = "dest_name"
         private const val EXTRA_ROUTE_TOKEN = "route_token"
+        private const val EXTRA_ROUTE_POLYLINE = "route_polyline"
+        private const val EXTRA_DURATION_MINUTES = "duration_minutes"
+        private const val EXTRA_DISTANCE_METERS = "distance_meters"
         private const val EXTRA_WAIT_P50 = "wait_p50"
         private const val EXTRA_WAIT_P80 = "wait_p80"
         private const val EXTRA_SERVICE_P50 = "service_p50"
@@ -178,6 +211,9 @@ class NavigationActivity : AppCompatActivity() {
             destLng: Double,
             destName: String,
             routeToken: String?,
+            routePolyline: String? = null,
+            durationMinutes: Int? = null,
+            distanceMeters: Int? = null,
             waitP50: Int?,
             waitP80: Int?,
             serviceP50: Int?,
@@ -186,6 +222,9 @@ class NavigationActivity : AppCompatActivity() {
             putExtra(EXTRA_DEST_LNG, destLng)
             putExtra(EXTRA_DEST_NAME, destName)
             putExtra(EXTRA_ROUTE_TOKEN, routeToken)
+            putExtra(EXTRA_ROUTE_POLYLINE, routePolyline)
+            putExtra(EXTRA_DURATION_MINUTES, durationMinutes ?: -1)
+            putExtra(EXTRA_DISTANCE_METERS, distanceMeters ?: -1)
             putExtra(EXTRA_WAIT_P50, waitP50 ?: -1)
             putExtra(EXTRA_WAIT_P80, waitP80 ?: -1)
             putExtra(EXTRA_SERVICE_P50, serviceP50 ?: -1)
@@ -193,16 +232,36 @@ class NavigationActivity : AppCompatActivity() {
     }
 }
 
-@androidx.compose.runtime.Composable
-private fun DemoGuidanceScreen(
+@SuppressLint("MissingPermission")
+@Composable
+private fun LocalGuidanceScreen(
     destName: String,
+    destination: LatLng,
+    routePoints: List<LatLng>,
+    durationMinutes: Int,
+    distanceMeters: Int,
     waitP50: Int,
     waitP80: Int,
     serviceP50: Int,
     onFinish: () -> Unit,
 ) {
+    val context = LocalContext.current
+    var currentLocation by remember { mutableStateOf<LatLng?>(null) }
+    LaunchedEffect(Unit) {
+        currentLocation = try {
+            val location = LocationServices
+                .getFusedLocationProviderClient(context)
+                .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+                .await()
+            location?.let { LatLng(it.latitude, it.longitude) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     val timeFormat = DateTimeFormatter.ofPattern("h:mm a")
-    val arrival = LocalTime.now().plusMinutes(14)
+    val routeDuration = durationMinutes.takeIf { it > 0 } ?: 14
+    val arrival = LocalTime.now().plusMinutes(routeDuration.toLong())
     val finish = if (waitP50 >= 0 && serviceP50 >= 0) {
         arrival.plusMinutes((waitP50 + serviceP50).toLong())
     } else {
@@ -210,13 +269,20 @@ private fun DemoGuidanceScreen(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        LocalRouteMap(
+            routePoints = routePoints,
+            destination = destination,
+            destinationName = destName,
+            currentLocation = currentLocation,
+            modifier = Modifier.fillMaxSize(),
+        )
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         ) {
@@ -226,7 +292,8 @@ private fun DemoGuidanceScreen(
             ) {
                 Text("En camino a $destName", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Llegada estimada: ${arrival.format(timeFormat)}",
+                    "Llegada estimada: ${arrival.format(timeFormat)}" +
+                        if (distanceMeters > 0) " · %.1f km".format(distanceMeters / 1000.0) else "",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -250,7 +317,103 @@ private fun DemoGuidanceScreen(
     }
 }
 
-@androidx.compose.runtime.Composable
+@Composable
+private fun LocalRouteMap(
+    routePoints: List<LatLng>,
+    destination: LatLng,
+    destinationName: String,
+    currentLocation: LatLng?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val mapView = remember {
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            minZoomLevel = 4.0
+            maxZoomLevel = 20.0
+            controller.setZoom(15.0)
+            controller.setCenter(destination.toGeoPoint())
+        }
+    }
+    var lastViewportKey by remember { mutableStateOf("") }
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        mapView.onResume()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapView.onPause()
+            mapView.onDetach()
+        }
+    }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { mapView },
+        update = { map ->
+            map.overlays.clear()
+            val points = routePoints.ifEmpty { listOfNotNull(currentLocation, destination) }
+            if (points.size > 1) {
+                OsmPolyline().apply {
+                    setPoints(points.map { it.toGeoPoint() })
+                    outlinePaint.color = android.graphics.Color.rgb(37, 99, 235)
+                    outlinePaint.strokeWidth = 14f
+                    map.overlays.add(this)
+                }
+            }
+            currentLocation?.let { location ->
+                OsmMarker(map).apply {
+                    position = location.toGeoPoint()
+                    title = "Tu ubicacion"
+                    setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                    map.overlays.add(this)
+                }
+            }
+            OsmMarker(map).apply {
+                position = destination.toGeoPoint()
+                title = destinationName
+                setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                map.overlays.add(this)
+            }
+
+            val viewportPoints = (points + destination + listOfNotNull(currentLocation)).distinct()
+            val viewportKey = viewportPoints.joinToString { "${it.latitude},${it.longitude}" }
+            if (viewportKey != lastViewportKey) {
+                lastViewportKey = viewportKey
+                map.post {
+                    if (viewportPoints.size > 1) {
+                        map.zoomToBoundingBox(viewportPoints.toOsmBoundingBox(), true, 120)
+                    } else {
+                        map.controller.setZoom(15.0)
+                        map.controller.setCenter(destination.toGeoPoint())
+                    }
+                }
+            }
+            map.invalidate()
+        },
+    )
+}
+
+private fun LatLng.toGeoPoint(): GeoPoint = GeoPoint(latitude, longitude)
+
+private fun List<LatLng>.toOsmBoundingBox(): org.osmdroid.util.BoundingBox {
+    val north = maxOf { it.latitude }
+    val south = minOf { it.latitude }
+    val east = maxOf { it.longitude }
+    val west = minOf { it.longitude }
+    return org.osmdroid.util.BoundingBox(north, east, south, west)
+}
+
+@Composable
 private fun DiligenciaBand(
     destName: String,
     waitP50: Int,
