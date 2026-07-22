@@ -158,10 +158,12 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val hasLocation = locationPermissions.permissions.any { it.status.isGranted }
 
     var centeredOnUser by remember { mutableStateOf(false) }
+    var seededDemoResults by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
 
     fun centerOnUser() {
+        if (!googleCloudEnabled) return
         val client = LocationServices.getFusedLocationProviderClient(context)
         client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
             .addOnSuccessListener { location ->
@@ -178,8 +180,14 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     LaunchedEffect(Unit) {
         if (!hasLocation) locationPermissions.launchMultiplePermissionRequest()
     }
+    LaunchedEffect(googleCloudEnabled) {
+        if (!googleCloudEnabled && !seededDemoResults) {
+            seededDemoResults = true
+            viewModel.searchCategory("banco", SantoDomingo)
+        }
+    }
     LaunchedEffect(hasLocation) {
-        if (hasLocation && !centeredOnUser) {
+        if (googleCloudEnabled && hasLocation && !centeredOnUser) {
             centeredOnUser = true
             centerOnUser()
         }
