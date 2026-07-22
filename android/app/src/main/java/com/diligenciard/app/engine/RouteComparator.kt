@@ -34,7 +34,6 @@ class RouteComparator(private val routesClient: RoutesProvider) {
 
     private val weightsByMode = mapOf(
         RouteMode.FASTEST to Weights(0.75, 0.10, 0.10, 0.05),
-        RouteMode.LEAST_CONGESTED to Weights(0.35, 0.10, 0.40, 0.15),
         RouteMode.SHORTEST_LEGAL to Weights(0.10, 0.80, 0.07, 0.03),
     )
 
@@ -46,6 +45,7 @@ class RouteComparator(private val routesClient: RoutesProvider) {
         val slowRatio: Double,
         val points: List<LatLng>,
         val isShorterDistance: Boolean,
+        val hasTrafficData: Boolean,
     ) {
         val fingerprint: String
             get() = dto.routeToken ?: dto.polyline?.encodedPolyline ?: "${dto.distanceMeters}-$durationMin-$staticMin"
@@ -85,28 +85,23 @@ class RouteComparator(private val routesClient: RoutesProvider) {
                 .filterNot { it.fingerprint == fastest.fingerprint }
                 .minByOrNull { score(it, weightsByMode.getValue(RouteMode.SHORTEST_LEGAL)) }
             ?: fastest
-        val leastCongestedPool = candidates
-            .filterNot { it.fingerprint == fastest.fingerprint || it.fingerprint == shortest.fingerprint }
-            .ifEmpty { candidates.filterNot { it.fingerprint == fastest.fingerprint } }
+        val leastCongested = candidates
+            .filter { it.hasTrafficData }
             .ifEmpty { candidates }
-        val leastCongested = leastCongestedPool.minBy {
-            score(it, weightsByMode.getValue(RouteMode.LEAST_CONGESTED))
-        }
+            .minWith(
+                compareBy<Candidate> { (it.jamRatio * 2.0) + it.slowRatio }
+                    .thenBy { it.durationMin },
+            )
 
         val byMode = when {
             preferences.preferLocalStreets -> linkedMapOf(
                 RouteMode.SHORTEST_LEGAL to shortest,
-                RouteMode.FASTEST to fastest,
                 RouteMode.LEAST_CONGESTED to leastCongested,
-            )
-            preferences.avoidFastRoads -> linkedMapOf(
                 RouteMode.FASTEST to fastest,
-                RouteMode.SHORTEST_LEGAL to shortest,
-                RouteMode.LEAST_CONGESTED to leastCongested,
             )
             else -> linkedMapOf(
-                RouteMode.FASTEST to fastest,
                 RouteMode.LEAST_CONGESTED to leastCongested,
+                RouteMode.FASTEST to fastest,
                 RouteMode.SHORTEST_LEGAL to shortest,
             )
         }
@@ -128,6 +123,7 @@ class RouteComparator(private val routesClient: RoutesProvider) {
             slowRatio = slow,
             points = points,
             isShorterDistance = "SHORTER_DISTANCE" in routeLabels,
+            hasTrafficData = !travelAdvisory?.speedReadingIntervals.isNullOrEmpty() && points.size > 1,
         )
     }
 
@@ -160,8 +156,12 @@ class RouteComparator(private val routesClient: RoutesProvider) {
                 val reduction = if (fastest.jamRatio > 0)
                     (100 * (1 - jamRatio / fastest.jamRatio)).roundToInt().coerceIn(0, 100)
                 else 0
-                if (reduction > 0) "$reduction% menos recorrido en tapon fuerte."
-                else "Ruta mas estable, menos tramos lentos."
+                when {
+                    !hasTrafficData -> "Sin detalle de trafico; seleccionada por menor tiempo."
+                    reduction > 0 -> "$reduction% menos recorrido en tapon fuerte."
+                    jamRatio == 0.0 && slowRatio == 0.0 -> "Sin congestion detectada en el recorrido."
+                    else -> "Ruta mas estable, menos tramos lentos."
+                }
             }
             RouteMode.SHORTEST_LEGAL -> {
                 val savedKm = (fastest.dto.distanceMeters - dto.distanceMeters) / 1000.0
