@@ -60,7 +60,11 @@ class DemoRoutesClient : RoutesProvider {
         }
     }
 
-    override suspend fun computeRoutes(origin: LatLng, destination: LatLng): List<RouteDto> =
+    override suspend fun computeRoutes(
+        origin: LatLng,
+        destination: LatLng,
+        avoidHighways: Boolean,
+    ): List<RouteDto> =
         try {
             val response = osrm.route(
                 coordinates = listOf(origin, destination).toOsrmCoordinates(),

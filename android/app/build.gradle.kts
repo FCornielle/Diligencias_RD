@@ -100,5 +100,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.osmdroid.android)
 
+    testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }

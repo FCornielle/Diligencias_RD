@@ -10,7 +10,7 @@ import kotlin.math.roundToInt
 enum class RouteMode(val title: String) {
     FASTEST("Ruta recomendada"),
     LEAST_CONGESTED("Menos congestionada"),
-    SHORTEST_LEGAL("Ruta corta legal"),
+    SHORTEST_LEGAL("Menor distancia"),
 }
 
 data class RouteOption(
@@ -56,7 +56,11 @@ class RouteComparator(private val routesClient: RoutesProvider) {
         destination: LatLng,
         preferences: RoutePreferences = RoutePreferences(),
     ): List<RouteOption> {
-        val routes = routesClient.computeRoutes(origin, destination)
+        val routes = routesClient.computeRoutes(
+            origin = origin,
+            destination = destination,
+            avoidHighways = preferences.avoidFastRoads,
+        )
         if (routes.isEmpty()) return emptyList()
 
         val candidates = routes.map { it.toCandidate() }
@@ -96,9 +100,9 @@ class RouteComparator(private val routesClient: RoutesProvider) {
                 RouteMode.LEAST_CONGESTED to leastCongested,
             )
             preferences.avoidFastRoads -> linkedMapOf(
-                RouteMode.LEAST_CONGESTED to leastCongested,
-                RouteMode.SHORTEST_LEGAL to shortest,
                 RouteMode.FASTEST to fastest,
+                RouteMode.SHORTEST_LEGAL to shortest,
+                RouteMode.LEAST_CONGESTED to leastCongested,
             )
             else -> linkedMapOf(
                 RouteMode.FASTEST to fastest,
@@ -161,8 +165,8 @@ class RouteComparator(private val routesClient: RoutesProvider) {
             }
             RouteMode.SHORTEST_LEGAL -> {
                 val savedKm = (fastest.dto.distanceMeters - dto.distanceMeters) / 1000.0
-                if (savedKm > 0.05) "%.1f km menos, usando calles locales.".format(savedKm)
-                else "La menor distancia disponible."
+                if (savedKm > 0.05) "%.1f km menos que la recomendada.".format(savedKm)
+                else "La menor distancia disponible, aunque tome mas tiempo."
             }
         }
         return RouteOption(

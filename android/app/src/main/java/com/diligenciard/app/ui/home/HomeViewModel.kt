@@ -265,7 +265,6 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     ): RouteMode? {
         val preferred = when {
             preferences.preferLocalStreets -> RouteMode.SHORTEST_LEGAL
-            preferences.avoidFastRoads -> RouteMode.LEAST_CONGESTED
             else -> RouteMode.FASTEST
         }
         return options.firstOrNull { it.mode == preferred }?.mode ?: options.firstOrNull()?.mode

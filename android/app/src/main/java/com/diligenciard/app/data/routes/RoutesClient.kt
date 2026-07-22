@@ -33,7 +33,11 @@ interface RoutesProvider {
         destinations: List<LatLng>,
     ): List<RouteMatrixElement>
 
-    suspend fun computeRoutes(origin: LatLng, destination: LatLng): List<RouteDto>
+    suspend fun computeRoutes(
+        origin: LatLng,
+        destination: LatLng,
+        avoidHighways: Boolean = false,
+    ): List<RouteDto>
 }
 
 /**
@@ -90,7 +94,11 @@ class RoutesClient(context: Context) : RoutesProvider {
      * SHORTER_DISTANCE es pre-GA: si la petición combinada falla, se reintenta sin ella
      * y el fallback será la alternativa con menor distanceMeters (spec §23).
      */
-    override suspend fun computeRoutes(origin: LatLng, destination: LatLng): List<RouteDto> {
+    override suspend fun computeRoutes(
+        origin: LatLng,
+        destination: LatLng,
+        avoidHighways: Boolean,
+    ): List<RouteDto> {
         val fieldMask = listOf(
             "routes.duration",
             "routes.staticDuration",
@@ -104,6 +112,7 @@ class RoutesClient(context: Context) : RoutesProvider {
         val base = ComputeRoutesRequest(
             origin = origin.toWaypoint(),
             destination = destination.toWaypoint(),
+            routeModifiers = RouteModifiersDto(avoidHighways = true).takeIf { avoidHighways },
         )
         return try {
             api.computeRoutes(fieldMask, base.copy(requestedReferenceRoutes = listOf("SHORTER_DISTANCE"))).routes

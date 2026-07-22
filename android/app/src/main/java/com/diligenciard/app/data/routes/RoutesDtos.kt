@@ -40,12 +40,18 @@ fun String?.parseDurationSeconds(): Long =
 // ---- Compute Routes (spec §4.3, §10) ----
 
 @Serializable
+data class RouteModifiersDto(
+    val avoidHighways: Boolean = false,
+)
+
+@Serializable
 data class ComputeRoutesRequest(
     val origin: WaypointDto,
     val destination: WaypointDto,
     val travelMode: String = "DRIVE",
     val routingPreference: String = "TRAFFIC_AWARE_OPTIMAL",
     val computeAlternativeRoutes: Boolean = true,
+    val routeModifiers: RouteModifiersDto? = null,
     val requestedReferenceRoutes: List<String>? = null, // ["SHORTER_DISTANCE"] (pre-GA)
     val extraComputations: List<String> = listOf("TRAFFIC_ON_POLYLINE"),
     val languageCode: String = "es-419",

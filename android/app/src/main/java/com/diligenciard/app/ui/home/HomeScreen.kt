@@ -1011,16 +1011,24 @@ private fun PlaceCard(
                     FilterChip(
                         selected = routePreferences.preferLocalStreets,
                         onClick = { onPreferLocalStreets(!routePreferences.preferLocalStreets) },
-                        label = { Text("Calles locales") },
+                        label = { Text("Menor distancia") },
                     )
                 }
                 item {
                     FilterChip(
                         selected = routePreferences.avoidFastRoads,
                         onClick = { onAvoidFastRoads(!routePreferences.avoidFastRoads) },
-                        label = { Text("Evitar vias rapidas") },
+                        label = { Text("Evitar autopistas") },
                     )
                 }
+            }
+            if (routePreferences.avoidFastRoads) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Google favorecera calles secundarias, pero puede usar una autopista si es necesaria.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
