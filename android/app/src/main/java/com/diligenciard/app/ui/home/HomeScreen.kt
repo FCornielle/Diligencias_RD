@@ -8,6 +8,7 @@ import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -587,6 +588,12 @@ private fun DemoMap(
         else -> listOf(SantoDomingo)
     }
     val bounds = remember(points) { DemoMapBounds.from(points) }
+    var zoom by remember { mutableStateOf(1f) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(bounds) {
+        zoom = 1f
+        pan = Offset.Zero
+    }
     val background = Color(0xFFE8EDF2)
     val blockColor = Color(0xFFDCE4EA)
     val minorRoad = Color(0xFFFFFFFF)
@@ -623,14 +630,26 @@ private fun DemoMap(
     Canvas(
         modifier = modifier
             .background(background)
-            .pointerInput(results, branchOptions, routeOptions) {
+            .pointerInput(results, branchOptions, routeOptions, zoom, pan) {
                 detectTapGestures { tap ->
                     val hit = results.minByOrNull { place ->
-                        val point = bounds.project(LatLng(place.latitude, place.longitude), size.width, size.height)
+                        val point = bounds.project(
+                            point = LatLng(place.latitude, place.longitude),
+                            width = size.width,
+                            height = size.height,
+                            zoom = zoom,
+                            pan = pan,
+                        )
                         hypot((point.x - tap.x).toDouble(), (point.y - tap.y).toDouble())
                     }
                     val hitDistance = hit?.let { place ->
-                        val point = bounds.project(LatLng(place.latitude, place.longitude), size.width, size.height)
+                        val point = bounds.project(
+                            point = LatLng(place.latitude, place.longitude),
+                            width = size.width,
+                            height = size.height,
+                            zoom = zoom,
+                            pan = pan,
+                        )
                         hypot((point.x - tap.x).toDouble(), (point.y - tap.y).toDouble())
                     }
                     if (hit != null && hitDistance != null && hitDistance <= 58.0) {
@@ -638,6 +657,18 @@ private fun DemoMap(
                     } else {
                         onMapClick()
                     }
+                }
+            }
+            .pointerInput(points) {
+                detectTransformGestures { _, panChange, zoomChange, _ ->
+                    zoom = (zoom * zoomChange).coerceIn(0.75f, 4.0f)
+                    pan += panChange
+                    val maxPanX = size.width * 0.85f * zoom
+                    val maxPanY = size.height * 0.85f * zoom
+                    pan = Offset(
+                        x = pan.x.coerceIn(-maxPanX, maxPanX),
+                        y = pan.y.coerceIn(-maxPanY, maxPanY),
+                    )
                 }
             },
     ) {
@@ -669,7 +700,7 @@ private fun DemoMap(
         routeOptions.sortedBy { if (it.mode == selectedRouteMode) 1 else 0 }.forEach { route ->
             val path = Path()
             route.points.forEachIndexed { index, point ->
-                val offset = bounds.project(point, w.toInt(), h.toInt())
+                val offset = bounds.project(point, w.toInt(), h.toInt(), zoom, pan)
                 if (index == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
             }
             val selected = route.mode == selectedRouteMode
@@ -686,7 +717,7 @@ private fun DemoMap(
 
         if (routeOptions.isNotEmpty()) {
             routeOptions.firstOrNull()?.points?.firstOrNull()?.let { origin ->
-                val offset = bounds.project(origin, w.toInt(), h.toInt())
+                val offset = bounds.project(origin, w.toInt(), h.toInt(), zoom, pan)
                 drawCircle(Color.White, radius = 24f, center = offset)
                 drawCircle(Color(0xFF1F2937), radius = 16f, center = offset)
                 drawContext.canvas.nativeCanvas.drawText("Salida", offset.x + 24f, offset.y + 8f, smallPaint)
@@ -704,7 +735,7 @@ private fun DemoMap(
                     total <= bestTotal + 25 -> AmbarAviso
                     else -> RojoCongestion
                 }
-                val offset = bounds.project(LatLng(place.latitude, place.longitude), w.toInt(), h.toInt())
+                val offset = bounds.project(LatLng(place.latitude, place.longitude), w.toInt(), h.toInt(), zoom, pan)
                 drawCircle(Color.White, radius = 34f, center = offset)
                 drawCircle(color, radius = 28f, center = offset)
                 if (total != null) {
@@ -719,10 +750,11 @@ private fun DemoMap(
                     val label = place.name.shortDemoLabel()
                     val labelX = (offset.x + 36f).coerceAtMost(w - 170f)
                     val labelY = (offset.y - 30f).coerceIn(112f, h - 120f)
+                    val labelWidth = min(250f, (w - labelX - 18f).coerceAtLeast(120f))
                     drawRoundRect(
                         color = Color.White,
                         topLeft = Offset(labelX - 8f, labelY - 27f),
-                        size = Size(min(250f, w - labelX - 18f), 50f),
+                        size = Size(labelWidth, 50f),
                         cornerRadius = CornerRadius(12f, 12f),
                         alpha = 0.92f,
                     )
@@ -732,7 +764,7 @@ private fun DemoMap(
         }
 
         routeDestination?.let { destination ->
-            val offset = bounds.project(LatLng(destination.latitude, destination.longitude), w.toInt(), h.toInt())
+            val offset = bounds.project(LatLng(destination.latitude, destination.longitude), w.toInt(), h.toInt(), zoom, pan)
             drawCircle(Color.White, radius = 35f, center = offset)
             drawCircle(RojoCongestion, radius = 27f, center = offset)
             drawContext.canvas.nativeCanvas.drawText("Destino", offset.x + 34f, offset.y + 8f, namePaint)
@@ -753,14 +785,17 @@ private data class DemoMapBounds(
     val minLng: Double,
     val maxLng: Double,
 ) {
-    fun project(point: LatLng, width: Int, height: Int): Offset {
+    fun project(point: LatLng, width: Int, height: Int, zoom: Float, pan: Offset): Offset {
         val latSpan = max(0.001, maxLat - minLat)
         val lngSpan = max(0.001, maxLng - minLng)
-        val x = ((point.longitude - minLng) / lngSpan * width).toFloat().coerceIn(52f, width - 52f)
-        val topSafe = 210f
-        val bottomSafe = max(topSafe + 40f, height - 420f)
-        val y = ((maxLat - point.latitude) / latSpan * height).toFloat().coerceIn(topSafe, bottomSafe)
-        return Offset(x, y)
+        val topSafe = min(220f, height * 0.24f)
+        val bottomSafe = max(topSafe + 80f, height - min(430f, height * 0.34f))
+        val leftSafe = 56f
+        val rightSafe = max(leftSafe + 80f, width - 56f)
+        val baseX = ((point.longitude - minLng) / lngSpan * width).toFloat().coerceIn(leftSafe, rightSafe)
+        val baseY = ((maxLat - point.latitude) / latSpan * height).toFloat().coerceIn(topSafe, bottomSafe)
+        val center = Offset(width / 2f, (topSafe + bottomSafe) / 2f)
+        return center + (Offset(baseX, baseY) - center) * zoom + pan
     }
 
     companion object {
