@@ -6,7 +6,7 @@ Fecha de revision: 22 de julio de 2026.
 
 Este levantamiento combina documentacion de Google Maps Platform, datos abiertos dominicanos, tableros de OPSEVI, noticias y conversaciones publicas en redes. Las conversaciones sociales son senales cualitativas: ayudan a descubrir problemas y vocabulario, pero no representan por si solas a toda la poblacion.
 
-No se accedio automaticamente a comentarios privados ni se extrajeron comentarios de Instagram. Meta prohibe la recoleccion automatizada sin permiso. Una integracion estable con una cuenta como Accidentes_RD debe hacerse mediante acuerdo con su responsable y las API/webhooks autorizadas de Meta.
+El analisis de comentarios se plantea como scraping y social listening de texto publico. La etapa de extraccion directa de Instagram no se ejecuto porque la plataforma no expone esos comentarios publicos a este entorno y Meta prohibe la recoleccion automatizada sin permiso. El pipeline propuesto acepta una exportacion autorizada, un proveedor de escucha social o datos entregados por Accidentes_RD y procesa el contenido como un corpus extraido: deduplicacion, anonimizacion, clasificacion y agregacion.
 
 ## Hallazgo inmediato sobre rutas
 
@@ -87,7 +87,9 @@ Cada evento debe contener:
 4. Publicacion en el mapa con fuente, antiguedad y confianza visibles.
 5. Expiracion automatica del incidente; el historial oficial queda separado.
 
-No se recomienda hacer scraping de Instagram. Ademas del riesgo contractual, una publicacion puede mostrar un accidente antiguo o sin ubicacion precisa y producir desvios incorrectos.
+Los comentarios pueden analizarse como scraping para descubrir problemas ciudadanos y corroborar eventos, pero no deben activar desvios por si solos. El extractor debe alimentarse de una fuente autorizada o de un export, porque una publicacion puede mostrar un accidente antiguo, un comentario puede ser un rumor y la ubicacion puede ser imprecisa.
+
+El protocolo detallado esta en [social-listening-accidentes-rd.md](social-listening-accidentes-rd.md).
 
 ## Prioridades de producto
 
