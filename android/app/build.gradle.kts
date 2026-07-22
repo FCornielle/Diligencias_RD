@@ -98,6 +98,7 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.osmdroid.android)
 
     debugImplementation(libs.androidx.ui.tooling)
 }

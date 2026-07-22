@@ -2,13 +2,8 @@ package com.diligenciard.app.ui.home
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.graphics.Paint
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,20 +65,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
@@ -117,9 +110,11 @@ import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polyline
 import com.google.maps.android.compose.rememberCameraPositionState
-import kotlin.math.hypot
-import kotlin.math.max
-import kotlin.math.min
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker as OsmMarker
+import org.osmdroid.views.overlay.Polyline as OsmPolyline
 
 /** Centro por defecto: Santo Domingo. */
 private val SantoDomingo = LatLng(18.4861, -69.9312)
@@ -142,6 +137,7 @@ val quickCategories = listOf(
 @Composable
 fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val context = LocalContext.current
+    val view = LocalView.current
     val state by viewModel.uiState.collectAsState()
     val googleCloudEnabled = RuntimeMode.googleCloudEnabled
 
@@ -158,33 +154,37 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
     val hasLocation = locationPermissions.permissions.any { it.status.isGranted }
 
     var centeredOnUser by remember { mutableStateOf(false) }
-    var seededDemoResults by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(false) }
     var searchText by remember { mutableStateOf("") }
+    var localSearchOrigin by remember { mutableStateOf(SantoDomingo) }
+    var localMapCenter by remember { mutableStateOf<LatLng?>(null) }
+    var localMapCenterRequest by remember { mutableStateOf(0) }
+
+    DisposableEffect(view) {
+        val previousKeepScreenOn = view.keepScreenOn
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = previousKeepScreenOn }
+    }
 
     fun centerOnUser() {
-        if (!googleCloudEnabled) return
         val client = LocationServices.getFusedLocationProviderClient(context)
         client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
             .addOnSuccessListener { location ->
                 if (location != null) {
-                    cameraPositionState.move(
-                        CameraUpdateFactory.newLatLngZoom(
-                            LatLng(location.latitude, location.longitude), 15f
-                        )
-                    )
+                    val userLocation = LatLng(location.latitude, location.longitude)
+                    localSearchOrigin = userLocation
+                    if (googleCloudEnabled) {
+                        cameraPositionState.move(CameraUpdateFactory.newLatLngZoom(userLocation, 15f))
+                    } else {
+                        localMapCenter = userLocation
+                        localMapCenterRequest += 1
+                    }
                 }
             }
     }
 
     LaunchedEffect(Unit) {
         if (!hasLocation) locationPermissions.launchMultiplePermissionRequest()
-    }
-    LaunchedEffect(googleCloudEnabled) {
-        if (!googleCloudEnabled && !seededDemoResults) {
-            seededDemoResults = true
-            viewModel.searchCategory("banco", SantoDomingo)
-        }
     }
     LaunchedEffect(hasLocation) {
         if (googleCloudEnabled && hasLocation && !centeredOnUser) {
@@ -294,12 +294,14 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
             }
             }
         } else {
-            DemoMap(
+            OpenStreetMap(
                 results = state.results,
                 branchOptions = state.branchOptions,
                 routeOptions = state.routeOptions,
                 selectedRouteMode = state.selectedRouteMode,
                 routeDestination = state.routeDestination,
+                userCenter = localMapCenter,
+                userCenterRequest = localMapCenterRequest,
                 onSelectPlace = viewModel::selectPlace,
                 onMapClick = { viewModel.selectPlace(null) },
                 modifier = Modifier.fillMaxSize(),
@@ -320,7 +322,8 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                     onSearch = {
                         searchActive = false
                         if (searchText.isNotBlank()) {
-                            viewModel.search(searchText, cameraPositionState.position.target)
+                            val origin = if (googleCloudEnabled) cameraPositionState.position.target else localSearchOrigin
+                            viewModel.search(searchText, origin)
                         }
                     },
                     onBack = { searchActive = false },
@@ -336,7 +339,8 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 items(quickCategories) { category ->
                     AssistChip(
                         onClick = {
-                            viewModel.searchCategory(category.key, cameraPositionState.position.target)
+                            val origin = if (googleCloudEnabled) cameraPositionState.position.target else localSearchOrigin
+                            viewModel.searchCategory(category.key, origin)
                         },
                         label = { Text(category.label) },
                         leadingIcon = {
@@ -460,7 +464,8 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel()) {
                 option = viewModel.optionFor(place),
                 onDismiss = { viewModel.selectPlace(null) },
                 onViewRoutes = {
-                    viewModel.compareRoutes(place, cameraPositionState.position.target)
+                    val origin = if (googleCloudEnabled) cameraPositionState.position.target else localSearchOrigin
+                    viewModel.compareRoutes(place, origin)
                 },
                 onCall = {
                     place.phone?.let { phone ->
@@ -578,252 +583,151 @@ fun formatMinutes(minutes: Int): String =
     else "${minutes / 60} h ${"%02d".format(minutes % 60)} min"
 
 @Composable
-private fun DemoMap(
+private fun OpenStreetMap(
     results: List<PlaceResult>,
     branchOptions: List<BranchOption>,
     routeOptions: List<RouteOption>,
     selectedRouteMode: RouteMode?,
     routeDestination: PlaceResult?,
+    userCenter: LatLng?,
+    userCenterRequest: Int,
     onSelectPlace: (PlaceResult) -> Unit,
     onMapClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bestTotal = branchOptions.minOfOrNull { it.breakdown.totalMinutesP50 }
-    val routePoints = routeOptions.flatMap { it.points }
-    val points = when {
-        routePoints.isNotEmpty() -> routePoints
-        results.isNotEmpty() -> results.map { LatLng(it.latitude, it.longitude) }
-        else -> listOf(SantoDomingo)
-    }
-    val bounds = remember(points) { DemoMapBounds.from(points) }
-    var zoom by remember { mutableStateOf(1f) }
-    var pan by remember { mutableStateOf(Offset.Zero) }
-    LaunchedEffect(bounds) {
-        zoom = 1f
-        pan = Offset.Zero
-    }
-    val background = Color(0xFFE8EDF2)
-    val blockColor = Color(0xFFDCE4EA)
-    val minorRoad = Color(0xFFFFFFFF)
-    val majorRoad = Color(0xFFC3D1DD)
-    val routeColors = mapOf(
-        RouteMode.FASTEST to Color(0xFF2563EB),
-        RouteMode.LEAST_CONGESTED to Color(0xFF0F9F6E),
-        RouteMode.SHORTEST_LEGAL to Color(0xFFF59E0B),
-    )
-    val timePaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.WHITE
-            textAlign = Paint.Align.CENTER
-            textSize = 25f
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val mapView = remember {
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            minZoomLevel = 4.0
+            maxZoomLevel = 20.0
+            controller.setZoom(13.5)
+            controller.setCenter(SantoDomingo.toGeoPoint())
         }
     }
-    val namePaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.rgb(20, 31, 43)
-            textAlign = Paint.Align.LEFT
-            textSize = 24f
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+    var lastViewportKey by remember { mutableStateOf("") }
+    var lastUserCenterRequest by remember { mutableStateOf(0) }
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                else -> Unit
+            }
         }
-    }
-    val smallPaint = remember {
-        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.rgb(65, 78, 92)
-            textAlign = Paint.Align.LEFT
-            textSize = 20f
+        lifecycleOwner.lifecycle.addObserver(observer)
+        mapView.onResume()
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapView.onPause()
+            mapView.onDetach()
         }
     }
 
-    Canvas(
-        modifier = modifier
-            .background(background)
-            .pointerInput(results, branchOptions, routeOptions, zoom, pan) {
-                detectTapGestures { tap ->
-                    val hit = results.minByOrNull { place ->
-                        val point = bounds.project(
-                            point = LatLng(place.latitude, place.longitude),
-                            width = size.width,
-                            height = size.height,
-                            zoom = zoom,
-                            pan = pan,
-                        )
-                        hypot((point.x - tap.x).toDouble(), (point.y - tap.y).toDouble())
-                    }
-                    val hitDistance = hit?.let { place ->
-                        val point = bounds.project(
-                            point = LatLng(place.latitude, place.longitude),
-                            width = size.width,
-                            height = size.height,
-                            zoom = zoom,
-                            pan = pan,
-                        )
-                        hypot((point.x - tap.x).toDouble(), (point.y - tap.y).toDouble())
-                    }
-                    if (hit != null && hitDistance != null && hitDistance <= 58.0) {
-                        onSelectPlace(hit)
+    AndroidView(
+        modifier = modifier,
+        factory = { mapView },
+        update = { map ->
+            map.overlays.clear()
+            map.setOnClickListener { onMapClick() }
+
+            val routeColors = mapOf(
+                RouteMode.FASTEST to android.graphics.Color.rgb(37, 99, 235),
+                RouteMode.LEAST_CONGESTED to android.graphics.Color.rgb(15, 159, 110),
+                RouteMode.SHORTEST_LEGAL to android.graphics.Color.rgb(245, 158, 11),
+            )
+            routeOptions.forEach { route ->
+                val selected = route.mode == selectedRouteMode
+                OsmPolyline().apply {
+                    setPoints(route.points.map { it.toGeoPoint() })
+                    outlinePaint.color = routeColors.getValue(route.mode)
+                    outlinePaint.strokeWidth = if (selected) 16f else 9f
+                    outlinePaint.alpha = if (selected) 255 else 150
+                    map.overlays.add(this)
+                }
+            }
+
+            if (routeOptions.isEmpty()) {
+                results.forEach { place ->
+                    val option = branchOptions.find { it.place.placeId == place.placeId }
+                    val total = option?.breakdown?.totalMinutesP50
+                    val markerTitle = if (total != null) {
+                        "${place.name} - ${formatMinutes(total)}"
                     } else {
-                        onMapClick()
+                        place.name
+                    }
+                    OsmMarker(map).apply {
+                        position = GeoPoint(place.latitude, place.longitude)
+                        title = markerTitle
+                        snippet = place.address
+                        setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { _, _ ->
+                            onSelectPlace(place)
+                            true
+                        }
+                        map.overlays.add(this)
                     }
                 }
             }
-            .pointerInput(points) {
-                detectTransformGestures { _, panChange, zoomChange, _ ->
-                    zoom = (zoom * zoomChange).coerceIn(0.75f, 4.0f)
-                    pan += panChange
-                    val maxPanX = size.width * 0.85f * zoom
-                    val maxPanY = size.height * 0.85f * zoom
-                    pan = Offset(
-                        x = pan.x.coerceIn(-maxPanX, maxPanX),
-                        y = pan.y.coerceIn(-maxPanY, maxPanY),
-                    )
-                }
-            },
-    ) {
-        val w = size.width
-        val h = size.height
-        drawRect(background)
-        repeat(5) { index ->
-            val left = w * (index % 2) * 0.52f - w * 0.04f
-            val top = h * index / 5.8f
-            drawRoundRect(
-                color = blockColor,
-                topLeft = Offset(left, top),
-                size = Size(w * 0.55f, h * 0.16f),
-                cornerRadius = CornerRadius(18f, 18f),
-                alpha = 0.65f,
-            )
-        }
-        repeat(7) { index ->
-            val x = w * (index + 1) / 8f
-            drawLine(minorRoad, Offset(x, 0f), Offset(x - w * 0.16f, h), strokeWidth = 8f)
-        }
-        repeat(6) { index ->
-            val y = h * (index + 1) / 7f
-            drawLine(minorRoad, Offset(0f, y), Offset(w, y - h * 0.10f), strokeWidth = 7f)
-        }
-        drawLine(majorRoad, Offset(0f, h * 0.46f), Offset(w, h * 0.35f), strokeWidth = 18f, cap = StrokeCap.Round)
-        drawLine(majorRoad, Offset(w * 0.18f, 0f), Offset(w * 0.70f, h), strokeWidth = 16f, cap = StrokeCap.Round)
 
-        routeOptions.sortedBy { if (it.mode == selectedRouteMode) 1 else 0 }.forEach { route ->
-            val path = Path()
-            route.points.forEachIndexed { index, point ->
-                val offset = bounds.project(point, w.toInt(), h.toInt(), zoom, pan)
-                if (index == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
-            }
-            val selected = route.mode == selectedRouteMode
-            drawPath(
-                path = path,
-                color = routeColors.getValue(route.mode),
-                style = Stroke(
-                    width = if (selected) 22f else 13f,
-                    cap = StrokeCap.Round,
-                ),
-                alpha = if (selected) 1f else 0.55f,
-            )
-        }
-
-        if (routeOptions.isNotEmpty()) {
-            routeOptions.firstOrNull()?.points?.firstOrNull()?.let { origin ->
-                val offset = bounds.project(origin, w.toInt(), h.toInt(), zoom, pan)
-                drawCircle(Color.White, radius = 24f, center = offset)
-                drawCircle(Color(0xFF1F2937), radius = 16f, center = offset)
-                drawContext.canvas.nativeCanvas.drawText("Salida", offset.x + 24f, offset.y + 8f, smallPaint)
-            }
-        }
-
-        val showPlaceMarkers = routeOptions.isEmpty()
-        if (showPlaceMarkers) {
-            results.forEachIndexed { index, place ->
-                val option = branchOptions.find { it.place.placeId == place.placeId }
-                val total = option?.breakdown?.totalMinutesP50
-                val color = when {
-                    total == null || bestTotal == null -> GrisCerrado
-                    total <= bestTotal + 10 -> VerdeMejor
-                    total <= bestTotal + 25 -> AmbarAviso
-                    else -> RojoCongestion
-                }
-                val offset = bounds.project(LatLng(place.latitude, place.longitude), w.toInt(), h.toInt(), zoom, pan)
-                drawCircle(Color.White, radius = 34f, center = offset)
-                drawCircle(color, radius = 28f, center = offset)
-                if (total != null) {
-                    drawContext.canvas.nativeCanvas.drawText(
-                        total.toString(),
-                        offset.x,
-                        offset.y + 8f,
-                        timePaint,
-                    )
-                }
-                if (index < 5) {
-                    val label = place.name.shortDemoLabel()
-                    val labelX = (offset.x + 36f).coerceAtMost(w - 170f)
-                    val labelY = (offset.y - 30f).coerceIn(112f, h - 120f)
-                    val labelWidth = min(250f, (w - labelX - 18f).coerceAtLeast(120f))
-                    drawRoundRect(
-                        color = Color.White,
-                        topLeft = Offset(labelX - 8f, labelY - 27f),
-                        size = Size(labelWidth, 50f),
-                        cornerRadius = CornerRadius(12f, 12f),
-                        alpha = 0.92f,
-                    )
-                    drawContext.canvas.nativeCanvas.drawText(label, labelX, labelY + 7f, namePaint)
+            routeDestination?.let { destination ->
+                OsmMarker(map).apply {
+                    position = GeoPoint(destination.latitude, destination.longitude)
+                    title = destination.name
+                    snippet = destination.address
+                    setAnchor(OsmMarker.ANCHOR_CENTER, OsmMarker.ANCHOR_BOTTOM)
+                    map.overlays.add(this)
                 }
             }
-        }
 
-        routeDestination?.let { destination ->
-            val offset = bounds.project(LatLng(destination.latitude, destination.longitude), w.toInt(), h.toInt(), zoom, pan)
-            drawCircle(Color.White, radius = 35f, center = offset)
-            drawCircle(RojoCongestion, radius = 27f, center = offset)
-            drawContext.canvas.nativeCanvas.drawText("Destino", offset.x + 34f, offset.y + 8f, namePaint)
-        }
-    }
+            val viewportPoints = when {
+                routeOptions.any { it.points.isNotEmpty() } -> routeOptions.flatMap { it.points }
+                results.isNotEmpty() -> results.map { LatLng(it.latitude, it.longitude) }
+                else -> emptyList()
+            }
+            val viewportKey = buildString {
+                append(routeOptions.joinToString { it.routeToken ?: it.mode.name })
+                append('|')
+                append(results.joinToString { it.placeId })
+            }
+            if (userCenterRequest != lastUserCenterRequest && userCenter != null) {
+                lastUserCenterRequest = userCenterRequest
+                map.post {
+                    map.controller.setZoom(15.0)
+                    map.controller.animateTo(userCenter.toGeoPoint())
+                }
+            } else if (viewportKey != lastViewportKey) {
+                lastViewportKey = viewportKey
+                map.post {
+                    when {
+                        viewportPoints.size > 1 -> map.zoomToBoundingBox(viewportPoints.toOsmBoundingBox(), true, 120)
+                        viewportPoints.size == 1 -> {
+                            map.controller.setZoom(15.0)
+                            map.controller.animateTo(viewportPoints.first().toGeoPoint())
+                        }
+                        else -> {
+                            map.controller.setZoom(13.5)
+                            map.controller.setCenter(SantoDomingo.toGeoPoint())
+                        }
+                    }
+                }
+            }
+            map.invalidate()
+        },
+    )
 }
 
-private fun String.shortDemoLabel(): String =
-    substringBefore(" - ")
-        .split(" ")
-        .filter { it.isNotBlank() }
-        .take(3)
-        .joinToString(" ")
+private fun LatLng.toGeoPoint(): GeoPoint = GeoPoint(latitude, longitude)
 
-private data class DemoMapBounds(
-    val minLat: Double,
-    val maxLat: Double,
-    val minLng: Double,
-    val maxLng: Double,
-) {
-    fun project(point: LatLng, width: Int, height: Int, zoom: Float, pan: Offset): Offset {
-        val latSpan = max(0.001, maxLat - minLat)
-        val lngSpan = max(0.001, maxLng - minLng)
-        val topSafe = min(220f, height * 0.24f)
-        val bottomSafe = max(topSafe + 80f, height - min(430f, height * 0.34f))
-        val leftSafe = 56f
-        val rightSafe = max(leftSafe + 80f, width - 56f)
-        val baseX = ((point.longitude - minLng) / lngSpan * width).toFloat().coerceIn(leftSafe, rightSafe)
-        val baseY = ((maxLat - point.latitude) / latSpan * height).toFloat().coerceIn(topSafe, bottomSafe)
-        val center = Offset(width / 2f, (topSafe + bottomSafe) / 2f)
-        return center + (Offset(baseX, baseY) - center) * zoom + pan
-    }
-
-    companion object {
-        fun from(points: List<LatLng>): DemoMapBounds {
-            val latitudes = points.map { it.latitude }
-            val longitudes = points.map { it.longitude }
-            val minLat = latitudes.minOrNull() ?: SantoDomingo.latitude
-            val maxLat = latitudes.maxOrNull() ?: SantoDomingo.latitude
-            val minLng = longitudes.minOrNull() ?: SantoDomingo.longitude
-            val maxLng = longitudes.maxOrNull() ?: SantoDomingo.longitude
-            val latPadding = max(0.006, (maxLat - minLat) * 0.30)
-            val lngPadding = max(0.006, (maxLng - minLng) * 0.30)
-            return DemoMapBounds(
-                minLat = minLat - latPadding,
-                maxLat = maxLat + latPadding,
-                minLng = minLng - lngPadding,
-                maxLng = maxLng + lngPadding,
-            )
-        }
-    }
+private fun List<LatLng>.toOsmBoundingBox(): org.osmdroid.util.BoundingBox {
+    val north = maxOf { it.latitude }
+    val south = minOf { it.latitude }
+    val east = maxOf { it.longitude }
+    val west = minOf { it.longitude }
+    return org.osmdroid.util.BoundingBox(north, east, south, west)
 }
 
 @Composable

@@ -106,8 +106,13 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 isSearching = true,
                 activeServiceLabel = label,
                 activeService = service,
+                results = emptyList(),
                 branchOptions = emptyList(),
+                selectedPlace = null,
                 comparisonNote = null,
+                routeDestination = null,
+                routeOptions = emptyList(),
+                selectedRouteMode = null,
                 error = null,
             )
         }
