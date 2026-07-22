@@ -44,8 +44,23 @@ Por eso el hibrido recomendado mantiene:
 ### GraphHopper
 
 - Sus modelos personalizados permiten cambiar prioridad, influencia de distancia y velocidades usadas por el modelo.
+- Un perfil residencial puede favorecer `RESIDENTIAL`, `LIVING_STREET`, `UNCLASSIFIED` y penalizar `PRIMARY`, `TRUNK` y `MOTORWAY`.
 - Es util para experimentar con preferencia de calles, pero no sustituye una fuente robusta de trafico vivo.
 - Configurar una velocidad de calculo no autoriza ni recomienda conducir a esa velocidad.
+
+## Calles residenciales y garitas
+
+El historial de que otros vehiculos cruzaron una via mejora la confianza de que la geometria existe, pero no demuestra derecho de acceso. DiligenciaRD no debe sugerir propiedad privada desconocida ni ayudar a evadir controles de acceso.
+
+Una garita solo puede participar en la ruta cuando existe un permiso confirmado por el usuario:
+
+- El usuario activa `Tengo acceso` para una urbanizacion o via concreta.
+- El permiso puede tener horario, fecha de expiracion y tipo de vehiculo.
+- La autorizacion se guarda localmente y no se comparte como permiso para terceros.
+- Una via marcada `Privada, acceso desconocido` queda excluida.
+- Una via `Publica con garita de control` puede mostrarse con advertencia, sin asegurar que permitan el paso.
+
+El perfil residencial debe combinar preferencia de clase vial con trafico vivo. No debe enviar al conductor por calles locales inundadas, cerradas o con un incidente vigente solo para evitar una avenida principal.
 
 ## Flujo propuesto
 

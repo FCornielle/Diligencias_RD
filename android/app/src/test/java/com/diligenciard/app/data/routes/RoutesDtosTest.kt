@@ -32,4 +32,22 @@ class RoutesDtosTest {
 
         assertFalse(body.contains("routeModifiers"))
     }
+
+    @Test
+    fun `route attempts progressively relax experimental and highway preferences`() {
+        val base = ComputeRoutesRequest(
+            origin = waypoint,
+            destination = waypoint,
+            routeModifiers = RouteModifiersDto(avoidHighways = true),
+        )
+
+        val attempts = buildRouteAttempts(base)
+
+        assertTrue(attempts[0].requestedReferenceRoutes == listOf("SHORTER_DISTANCE"))
+        assertTrue(attempts[0].routeModifiers?.avoidHighways == true)
+        assertTrue(attempts[1].requestedReferenceRoutes == null)
+        assertTrue(attempts[1].routeModifiers?.avoidHighways == true)
+        assertTrue(attempts[2].routeModifiers == null)
+        assertTrue(attempts.last().computeAlternativeRoutes.not())
+    }
 }

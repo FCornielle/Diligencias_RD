@@ -1,6 +1,7 @@
 package com.diligenciard.app.data.routes
 
 import android.content.Context
+import android.util.Log
 import com.diligenciard.app.BuildConfig
 import com.diligenciard.app.util.AppSignature
 import com.google.android.gms.maps.model.LatLng
@@ -39,6 +40,20 @@ interface RoutesProvider {
         avoidHighways: Boolean = false,
     ): List<RouteDto>
 }
+
+class RoutesUnavailableException(message: String, cause: Throwable? = null) :
+    Exception(message, cause)
+
+internal fun buildRouteAttempts(base: ComputeRoutesRequest): List<ComputeRoutesRequest> =
+    listOf(
+        base.copy(requestedReferenceRoutes = listOf("SHORTER_DISTANCE")),
+        base,
+        base.copy(routeModifiers = null),
+        base.copy(
+            routeModifiers = null,
+            computeAlternativeRoutes = false,
+        ),
+    ).distinct()
 
 /**
  * Cliente de Routes API por REST usando la clave Android restringida
@@ -114,16 +129,40 @@ class RoutesClient(context: Context) : RoutesProvider {
             destination = destination.toWaypoint(),
             routeModifiers = RouteModifiersDto(avoidHighways = true).takeIf { avoidHighways },
         )
-        return try {
-            api.computeRoutes(fieldMask, base.copy(requestedReferenceRoutes = listOf("SHORTER_DISTANCE"))).routes
-        } catch (e: retrofit2.HttpException) {
-            // La función experimental puede cambiar o no estar disponible: degradar con gracia.
-            api.computeRoutes(fieldMask, base).routes
+        var lastHttpError: retrofit2.HttpException? = null
+        buildRouteAttempts(base).forEachIndexed { index, request ->
+            try {
+                val routes = api.computeRoutes(fieldMask, request).routes
+                if (routes.isNotEmpty()) return routes
+                Log.w(TAG, "Routes attempt ${index + 1} returned no routes")
+            } catch (e: retrofit2.HttpException) {
+                lastHttpError = e
+                Log.w(TAG, "Routes attempt ${index + 1} failed with HTTP ${e.code()}")
+                if (e.code() !in FALLBACK_HTTP_CODES) {
+                    throw RoutesUnavailableException(
+                        "Google Routes no autorizo la solicitud (HTTP ${e.code()}).",
+                        e,
+                    )
+                }
+            }
         }
+        val finalError = lastHttpError
+        throw RoutesUnavailableException(
+            if (finalError != null)
+                "Google Routes rechazo las alternativas disponibles (HTTP ${finalError.code()})."
+            else
+                "No encontramos una ruta transitable hacia ese destino.",
+            finalError,
+        )
     }
 
     private fun LatLng.toWaypoint() =
         WaypointDto(LocationDto(LatLngDto(latitude, longitude)))
 
     private fun LatLng.toMatrixWaypoint() = MatrixWaypoint(toWaypoint())
+
+    private companion object {
+        const val TAG = "DiligenciaRoutes"
+        val FALLBACK_HTTP_CODES = setOf(400, 404, 422)
+    }
 }
